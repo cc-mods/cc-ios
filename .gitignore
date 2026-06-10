@@ -1,0 +1,44 @@
+# ---- CrossCode game files: NEVER commit copyrighted game assets ----
+CrossCode/
+**/CrossCode/
+*.ccmod
+GameData/
+assets-cc/
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# ---- Xcode ----
+build/
+DerivedData/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+*.xcworkspace/xcuserdata/
+**/xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ---- Swift Package Manager ----
+.build/
+.swiftpm/
+Package.resolved
+
+# ---- CocoaPods / Carthage (if ever used) ----
+Pods/
+Carthage/Build/
+
+# ---- Misc ----
+*.log
+.env
