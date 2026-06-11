@@ -52,32 +52,81 @@ else
 fi
 
 # --- 2. Team ID --------------------------------------------------------------------
+# Prefer the team of the Apple ID actually signed into Xcode (authoritative — this is the
+# account that can mint profiles). Only fall back to a keychain signing cert, which may be
+# stale / belong to an account no longer signed in (that mismatch causes the dreaded
+# "No Account for Team XXXX" build error).
 step "Signing team"
 if [[ -z "$team_id" ]]; then
+  team_id="$(defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier 2>/dev/null \
+    | plutil -convert json -o - - 2>/dev/null \
+    | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+teams = []
+for v in d.values():
+    for t in (v if isinstance(v, list) else [v]):
+        if isinstance(t, dict) and t.get('teamID'):
+            teams.append((0 if t.get('isFreeProvisioningTeam') else 1, t['teamID']))
+teams.sort()
+print(teams[0][1] if teams else '')
+" 2>/dev/null || true)"
+fi
+if [[ -z "$team_id" ]]; then
+  # Fallback: a signing identity in the keychain (works when it matches a signed-in account).
   team_id="$(security find-identity -v -p codesigning 2>/dev/null \
     | grep -iE "Apple Development" | grep -oE "\([A-Z0-9]{10}\)" | tr -d '()' | head -1 || true)"
 fi
 if [[ -z "$team_id" ]]; then
-  echo "error: no Apple Development signing identity found." >&2
-  echo "Add your Apple ID in Xcode → Settings → Accounts, then build once in Xcode to mint a cert." >&2
+  echo "error: no signing team found." >&2
+  echo "Add your Apple ID in Xcode → Settings → Accounts (a free account is fine)." >&2
   exit 1
 fi
 echo "Team ID: $team_id"
 echo "Bundle ID: $bundle_id"
 
-# --- 3. Device UDID ----------------------------------------------------------------
+# --- 3. Device (resolve BOTH ids) --------------------------------------------------
+# xcodebuild's -destination needs the hardware UDID (00008xxx-…), while
+# `devicectl … --device` takes the coredevice identifier (a UUID). Detect both from the
+# JSON so we don't fragile-parse the human-readable table (model names contain spaces).
 step "Device"
-if [[ -z "$device_udid" ]]; then
-  device_udid="$(xcrun devicectl list devices 2>/dev/null \
-    | awk '/available|connected/ && /iPhone|iPad/ {print $(NF-1); exit}' || true)"
+install_id="$device_udid"   # for devicectl (identifier); also honoured if user passed --device
+build_udid=""               # for xcodebuild (hardware UDID)
+if [[ -z "$device_udid" || -z "$build_udid" ]]; then
+  tmp_dev="$(mktemp)"
+  xcrun devicectl list devices --json-output "$tmp_dev" >/dev/null 2>&1 || true
+  read -r det_ident det_udid < <(python3 - "$tmp_dev" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for dev in d.get("result", {}).get("devices", []):
+    cp = dev.get("connectionProperties", {})
+    if cp.get("tunnelState") in ("connected", "connecting") or cp.get("pairingState") == "paired":
+        ident = dev.get("identifier", "")
+        udid = dev.get("hardwareProperties", {}).get("udid", "")
+        print(ident, udid)
+        break
+PY
+)
+  rm -f "$tmp_dev"
+  [[ -z "$install_id" ]] && install_id="$det_ident"
+  build_udid="$det_udid"
 fi
-if [[ -z "$device_udid" ]]; then
+# If the user supplied --device but we couldn't read a hardware UDID, fall back to it.
+[[ -z "$build_udid" ]] && build_udid="$install_id"
+if [[ -z "$install_id" || -z "$build_udid" ]]; then
   echo "error: no connected device found. Connect iPhone, enable Developer Mode, trust the Mac." >&2
   echo "Devices seen:" >&2
   xcrun devicectl list devices >&2 || true
   exit 1
 fi
-echo "Device UDID: $device_udid"
+echo "Device identifier: $install_id"
+echo "Hardware UDID:     $build_udid"
 
 # --- 4. Regenerate project ---------------------------------------------------------
 step "Project"
@@ -94,7 +143,7 @@ xcodebuild \
   -project "$project" \
   -scheme "$scheme" \
   -configuration Debug \
-  -destination "platform=iOS,id=$device_udid" \
+  -destination "platform=iOS,id=$build_udid" \
   -derivedDataPath "$derived" \
   -allowProvisioningUpdates \
   -allowProvisioningDeviceRegistration \
@@ -112,16 +161,16 @@ echo "Built: $app_path"
 
 # --- 6. Install --------------------------------------------------------------------
 step "Install"
-xcrun devicectl device install app --device "$device_udid" "$app_path"
+xcrun devicectl device install app --device "$install_id" "$app_path"
 
 # --- 7. Launch ---------------------------------------------------------------------
 if [[ "$do_launch" -eq 1 ]]; then
   step "Launch"
-  xcrun devicectl device process launch --device "$device_udid" "$bundle_id" || {
+  xcrun devicectl device process launch --device "$install_id" "$bundle_id" || {
     echo "note: launch failed (often a first-run trust prompt)." >&2
     echo "On the iPhone: Settings → General → VPN & Device Management → trust your developer cert, then relaunch." >&2
   }
 fi
 
 step "Done"
-echo "cc-ios installed on device $device_udid as $bundle_id"
+echo "cc-ios installed on device $install_id as $bundle_id"

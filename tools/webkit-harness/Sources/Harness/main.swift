@@ -367,7 +367,15 @@ final class Harness: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSA
                     emit("EVAL", "error: \(error.localizedDescription)"); exit(1)
                 }
                 emit("EVAL", "\(result.map { String(describing: $0) } ?? "nil")")
-                exit(0)
+                // If a settle window is requested, stay alive so asynchronous work kicked
+                // off by the eval (e.g. decodeAudioData callbacks) can flush via console.log
+                // before we exit. Otherwise exit immediately as before.
+                if self.opts.settle > 0 {
+                    emit("INFO", "eval done; waiting \(Int(self.opts.settle))s for async logs…")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + self.opts.settle) { exit(0) }
+                } else {
+                    exit(0)
+                }
             }
             return
         }
