@@ -3,18 +3,19 @@ import AVFoundation
 /// Configures the app's audio session for game playback and surfaces interruption
 /// events (phone calls, Siri, other apps) so the host can pause/resume the game.
 ///
-/// Category rationale: `.playback` is the correct category for a game and — crucially on
-/// iOS — it lets the Web Audio `AudioContext` actually render. CrossCode plays background
-/// music through HTML5 `<audio>` (which autoplays once
-/// `mediaTypesRequiringUserActionForPlayback` is cleared) but plays all sound effects
-/// through Web Audio; under the `.ambient` category iOS leaves the Web Audio context
-/// effectively silent, so music was audible while SFX were not. `.playback` fixes that and
-/// matches how games normally behave (audio plays even with the ring/silent switch on).
+/// Category rationale: `.ambient`. The silent-SFX problem was **not** the category — it was
+/// CrossCode's Web Audio `AudioContext` starting suspended on iOS with nothing to resume it
+/// (background music uses HTML5 `<audio>`, which autoplays, so only SFX were affected). The
+/// real fix is `Bootstrap.webAudioUnlockJavaScript`, which resumes the context on the first
+/// user gesture; Web Audio renders fine under `.ambient`. We deliberately avoid `.playback`
+/// here: activating a `.playback` session at launch blocked WebKit's audio init on device and
+/// left the game on a black screen. `.ambient` also respects the hardware mute switch, which
+/// is the expected iOS behaviour.
 enum AudioSession {
     static func activate() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setCategory(.ambient, mode: .default, options: [])
             try session.setActive(true)
         } catch {
             NSLog("[cc audio] failed to activate session: %@", error.localizedDescription)

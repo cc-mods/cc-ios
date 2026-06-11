@@ -170,6 +170,15 @@ struct GameView: UIViewRepresentable {
             // save made before sync existed), capture it so the bridge has something to push.
             saveBridge.captureExistingIfNeeded(from: webView)
         }
+
+        /// The WebKit content process died (commonly an out-of-memory jetsam on device during
+        /// the game's heavy asset/audio preload). The host app stays alive but the WebView
+        /// goes blank — the "black screen" failure mode. Log it and reload so the game can
+        /// recover instead of sitting on a black screen.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            NSLog("[cc CRASH] WebContent process terminated (likely OOM); reloading")
+            webView.reload()
+        }
     }
 
     // MARK: - Asset location

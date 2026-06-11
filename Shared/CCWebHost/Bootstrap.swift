@@ -463,57 +463,34 @@ public enum Bootstrap {
     /// effects (which use Web Audio) are silent even though the files decode fine, while
     /// background music keeps playing because it uses HTML5 `<audio>`. The engine already
     /// calls `context.resume()` in its update loop, but that call is rejected on iOS unless
-    /// it follows a gesture. This script resumes the context from the first real user
-    /// gesture (and on focus/visibility changes), which is the standard iOS unlock.
+    /// it follows a gesture. This script resumes CrossCode's context from the first real user
+    /// gesture (and on focus/visibility), which is the standard iOS unlock.
     ///
-    /// It tracks every `AudioContext` created (by wrapping the constructor) so it works
-    /// regardless of CrossCode internals, and is a harmless no-op once the context is
-    /// already running (e.g. on macOS, where contexts start unsuspended).
+    /// It deliberately does **not** replace the global `AudioContext` constructor — doing so
+    /// destabilised the WebKit content process on device. It only reaches the engine's own
+    /// context at `ig.soundManager.context.context`, and is a harmless no-op once that context
+    /// is already running (e.g. on macOS, where contexts start unsuspended).
     public static let webAudioUnlockJavaScript: String = #"""
     (function () {
       "use strict";
       if (window.__ccAudioUnlockInstalled) return;
       window.__ccAudioUnlockInstalled = true;
 
-      var contexts = [];
-      function track(ctx) { if (ctx && contexts.indexOf(ctx) < 0) contexts.push(ctx); }
-
-      // Wrap the constructor so any context the game creates is captured.
-      var Native = window.AudioContext || window.webkitAudioContext;
-      if (Native && !Native.__ccWrapped) {
-        var Wrapped = function () {
-          var c = new Native();
-          track(c);
-          return c;
-        };
-        Wrapped.prototype = Native.prototype;
-        Wrapped.__ccWrapped = true;
+      function resumeGameContext() {
         try {
-          window.AudioContext = Wrapped;
-          window.webkitAudioContext = Wrapped;
-        } catch (e) { /* read-only in some engines; gesture path below still resumes */ }
-      }
-
-      function resumeAll() {
-        // Also reach CrossCode's own context directly, in case it predates the wrapper.
-        try {
-          var w = window.ig && ig.soundManager && ig.soundManager.context;
-          if (w && w.context) track(w.context);
+          var wrap = window.ig && ig.soundManager && ig.soundManager.context;
+          var ctx = wrap && wrap.context;
+          if (ctx && ctx.state === "suspended" && ctx.resume) { ctx.resume(); }
         } catch (e) {}
-        for (var i = 0; i < contexts.length; i++) {
-          var c = contexts[i];
-          if (c && c.state === "suspended" && c.resume) { try { c.resume(); } catch (e) {} }
-        }
       }
 
       var GESTURES = ["touchend", "touchstart", "pointerup", "pointerdown", "mousedown", "keydown", "click"];
-      function onGesture() { resumeAll(); }
       for (var g = 0; g < GESTURES.length; g++) {
-        document.addEventListener(GESTURES[g], onGesture, true);
+        document.addEventListener(GESTURES[g], resumeGameContext, true);
       }
-      window.addEventListener("focus", resumeAll, false);
+      window.addEventListener("focus", resumeGameContext, false);
       document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) resumeAll();
+        if (!document.hidden) resumeGameContext();
       }, false);
     })();
     """#
