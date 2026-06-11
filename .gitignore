@@ -42,3 +42,17 @@ Carthage/Build/
 # ---- Misc ----
 *.log
 .env
+
+# ---- cc-ios harness (local-only artifacts; never commit game paths/screenshots) ----
+tools/webkit-harness/asset-root.local
+tools/webkit-harness/last-run*.png
+tools/webkit-harness/frames/
+tools/webkit-harness/*.png
+proof.png
+harness-out/
+*.local
+
+# ---- iOS bundled game assets (copyrighted; never commit) ----
+app/Resources/game/
+app/cc-ios.xcodeproj/
+app/Sources/Info.plist
