@@ -20,9 +20,24 @@ struct GameView: UIViewRepresentable {
             """)
         }
 
+        // Files-app saves folder (Documents/saves): if the user dropped a replacement save
+        // from a computer, import it so it becomes the active (and freshest) save before sync.
+        SaveFolder.ensure()
+        if let dropped = SaveFolder.pendingImport() {
+            context.coordinator.saveBridge.importExternalSave(dropped)
+            NSLog("[cc saves] imported %d bytes from the saves/ folder", dropped.count)
+        }
+
         // Wireless sync (optional): if a server is configured, pull a newer save into
         // Documents/cc.save before we read it for injection. Bounded so launch stays snappy.
         _ = context.coordinator.syncClient.pullIfNewerBlocking(timeout: 4)
+
+        // Mirror whatever save we ended up with into the saves/ folder so the latest is
+        // always grabbable from a PC (and so our mirror matches the canonical save).
+        if let data = try? Data(contentsOf: SaveBridge.saveFileURL), !data.isEmpty {
+            SaveFolder.recordExport(data)
+        }
+
         context.coordinator.saveBridge.onSaveWritten = { [weak coordinator = context.coordinator] value in
             coordinator?.syncClient.push(value)
         }

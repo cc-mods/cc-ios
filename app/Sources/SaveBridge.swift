@@ -54,11 +54,24 @@ final class SaveBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
+    /// Imports an externally-supplied save (e.g. one the user dropped into the Files-app
+    /// `saves/` folder) as the canonical save, so it becomes active on this launch.
+    func importExternalSave(_ data: Data) {
+        guard let value = String(data: data, encoding: .utf8) else {
+            NSLog("[cc save] ignored non-UTF8 import (%d bytes)", data.count)
+            return
+        }
+        write(value)
+    }
+
     private func write(_ value: String) {
         let url = Self.saveFileURL
+        guard let data = value.data(using: .utf8) else { return }
         do {
-            try value.data(using: .utf8)?.write(to: url, options: .atomic)
-            NSLog("[cc save] wrote %d bytes to %@", value.utf8.count, url.path)
+            try data.write(to: url, options: .atomic)
+            // Keep the Files-app saves/ folder mirror in sync with the canonical save.
+            SaveFolder.recordExport(data)
+            NSLog("[cc save] wrote %d bytes to %@", data.count, url.path)
         } catch {
             NSLog("[cc save] failed to write save: %@", error.localizedDescription)
         }
