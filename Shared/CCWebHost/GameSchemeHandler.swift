@@ -281,6 +281,21 @@ public final class GameSchemeHandler: NSObject, WKURLSchemeHandler {
             applied.append("force-select")
         }
 
+        // Force the Web Audio engine on. CrossCode decides once at boot:
+        //   var m=localStorage.getItem("options.useWebAudio")!="false", m=ig.WebAudio.isSupported()&&…&&m;
+        // and only takes the Web Audio path (ig.Sound = ig.SoundWebAudio) when `m` is true.
+        // The alternative HTML5-`<audio>` path can't preload CrossCode's ~1289 sounds on iOS
+        // (it stalls the loader partway), so disabling the in-game "use Web Audio" option
+        // soft-bricks the game. Drop the stored-setting term so the decision rests only on
+        // `ig.WebAudio.isSupported()` (always true in WebKit) — making the toggle unable to
+        // break loading, and auto-healing a device whose setting is already "false".
+        let webAudioOriginal = "var m=localStorage.getItem(\"options.useWebAudio\")!=\"false\","
+        let webAudioPatched = "var m=true,"
+        if text.contains(webAudioOriginal) {
+            text = text.replacingOccurrences(of: webAudioOriginal, with: webAudioPatched)
+            applied.append("force-webaudio")
+        }
+
         if applied.isEmpty {
             log("audio-patch: no patterns matched (already patched or version mismatch)")
             return data

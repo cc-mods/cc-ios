@@ -129,6 +129,15 @@ all required:
    `ig.soundManager.context.context`, **not** `ig.soundManager.context`) on the first user gesture
    and on focus/visibility. The engine's own per-frame `resume()` only succeeds once the session
    permits it.
+4. **Force the Web Audio engine on (the in-game toggle is a footgun).** CrossCode's "use Web Audio"
+   option (`options.useWebAudio`, stored as its own `localStorage` key — *not* in `cc.save`) selects
+   the engine **once at boot**: `var m=localStorage.getItem("options.useWebAudio")!="false", m=…&&m`
+   then `if(m){ig.Sound=ig.SoundWebAudio;…}`. The fallback HTML5-`<audio>` path can't preload ~1289
+   sounds on iOS and **stalls the loader ~⅓ of the way** — so turning the option off soft-bricks the
+   game (and survives relaunch, since it's a separate key the save sync never touches). The same
+   `preferM4AAudio` serve-time patch drops the stored-setting term (`var m=true,…`) so the decision
+   rests only on `ig.WebAudio.isSupported()` (always true in WebKit). This makes the toggle unable to
+   break loading and **auto-heals** a device already stuck with the setting off.
 
 Don't remove any part. Verify after audio changes: `format.ext == "m4a"`, `ig.Sound.enabled`,
 and `ig.soundManager.context.context.state === "running"`. SFX audibility itself only reproduces on
