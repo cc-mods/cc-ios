@@ -122,13 +122,25 @@ all required:
    unplayable, so a plain reorder is not enough.
 3. **Make Web Audio actually render on iOS.** CrossCode plays background music through HTML5
    `<audio>` (autoplays once `mediaTypesRequiringUserActionForPlayback = []`) but plays all SFX
-   through Web Audio. An `AudioContext` starts **suspended** on iOS; under the `.ambient` audio
-   session it stays effectively silent, so the classic symptom is *music plays but SFX don't*. Two
-   things keep it rendering: the app sets `AVAudioSession` to **`.playback`** (`AudioSession.swift`),
-   and `Bootstrap.webAudioUnlockJavaScript` resumes the context (nested at
-   `ig.soundManager.context.context`, **not** `ig.soundManager.context`) on the first user gesture
-   and on focus/visibility. The engine's own per-frame `resume()` only succeeds once the session
-   permits it.
+   through Web Audio. An `AudioContext` starts **suspended** on iOS; nothing resumes it on its own,
+   so the classic symptom is *music plays but SFX don't*. `Bootstrap.webAudioUnlockJavaScript`
+   resumes the context (nested at `ig.soundManager.context.context`, **not**
+   `ig.soundManager.context`) on the first user gesture and on focus/visibility. The engine's own
+   per-frame `resume()` only starts succeeding once a gesture has unlocked audio.
+   - **Audio session category: use `.ambient`, NOT `.playback`.** It is tempting to use `.playback`
+     (the "correct" game category that plays through the silent switch). **Don't** — on a real
+     device, activating a non-mixable `.playback` session in the host process **black-screens the
+     game**. `AudioSession.activate()` runs synchronously right before `webView.load()`, so the
+     host seizes an exclusive audio route exactly as the WKWebView's separate **WebContent process**
+     is starting up and trying to establish its own `AudioContext` session via `mediaserverd`; the
+     arbitration wedges WebContent's media/render init and the view never paints. JS logs up to
+     `EXTENSIONS: []` (main-frame injection) then go silent. `.ambient` is mixable/non-interrupting,
+     never seizes the route, and boots fine. Proven by toggling only the category (both builds
+     vanilla): `.playback` → black, `.ambient` → title screen. The Simulator does **not** reproduce
+     this (no real `mediaserverd`/hardware route). Trade-off: `.ambient` obeys the hardware mute
+     switch, so audio is silenced when the ringer is on silent. Playing through the silent switch
+     would need `.playback` activated **after** boot (e.g. deferred to the first gesture) or with
+     `.mixWithOthers` — both **must be device-tested** before adopting.
 4. **Force the Web Audio engine on (the in-game toggle is a footgun).** CrossCode's "use Web Audio"
    option (`options.useWebAudio`, stored as its own `localStorage` key — *not* in `cc.save`) selects
    the engine **once at boot**: `var m=localStorage.getItem("options.useWebAudio")!="false", m=…&&m`
@@ -163,11 +175,32 @@ axes 0-3). The native bridge feeds `window.__ccpad`. **GameController's y-axis i
   return 200 for directory** requests.
 - Packed `.ccmod` files can't be read in browser mode → they must be **unpacked to folders** (at
   setup time by `tools/setup-ccloader.sh`, and on-device by `ModFSBridge`/`ZipReader`).
+- **A mod's bundled assets must be listed in its manifest's `assets` array**, or they 404 — and
+  **a failed resource load at GAME INIT is FATAL** (CrossCode shows `CRITICAL BUG`, stack
+  `_loadCallback`→`loadingFinished`→`onerror`). CCLoader browser-mode can't enumerate a mod's
+  folder, so it only maps assets the manifest declares. Example that bit us: CCModManager ships
+  `media/gui/CCModManager.png` + `media/font/ccmodmanager-icons.png` but its `ccmod.json` has no
+  `assets` field → fatal crash on boot. `tools/setup-ccloader.sh` now auto-populates each mod's
+  `assets` list by scanning its `assets/` dir. **Never hand-edit an unpacked mod manifest** — the
+  script re-unpacks `.ccmod`s on every run and would wipe it; fix it in the script instead.
 - Mods that inject game classes (e.g. `sc.TitleScreenButtonGui`) must run in the **`prestart`**
   stage — after `game.compiled.js` defines `sc.*`. `postload`/`main` are too early/late.
 - Title-screen buttons: use focus indices well clear of the game's (0–5) to avoid menu-nav
   collisions, and wrap setup + callbacks in `try/catch` so a mod error can never reach the game's
   init (which shows the `CRITICAL BUG` screen).
+- **The bundle can come back as vanilla** (root `node-webkit.html`, no `ccloader/`) — e.g. after a
+  re-sync or across sessions. Then there's no Mods tab and no title buttons. Check the layout
+  (`ccloader/index.html` present?) and re-run `tools/setup-ccloader.sh` (+ `--add-mod
+  mods/ccios-title-buttons`) to restore it.
+- **`sync-assets.sh` is destructive (`rsync --delete`) and resets to vanilla** — it repopulates
+  `app/Resources/game` from the raw Steam tree, wiping any CCLoader overlay. So the pipeline order
+  is **sync-assets → setup-ccloader**, never the reverse, and you must not re-run sync-assets after
+  setup-ccloader unless you intend to start over. This bit us hard: `tools/ios-build.sh` used to
+  decide "assets present?" by checking for the *vanilla* marker `Resources/game/node-webkit.html` —
+  which the CCLoader layout doesn't have (the game moves to `assets/node-webkit.html`) — so **every
+  device build silently re-ran sync-assets and destroyed CCLoader**, booting vanilla (no mods menu).
+  The guard now also accepts `ccloader/index.html` / `assets/node-webkit.html`. When a build
+  mysteriously loses mods, suspect an asset re-sync first.
 
 ---
 
@@ -190,6 +223,27 @@ axes 0-3). The native bridge feeds `window.__ccpad`. **GameController's y-axis i
 
 When changing the audio/mods pipeline, re-run `tools/sync-assets.sh` / `tools/setup-ccloader.sh`
 against a scratch tree and boot it in the harness.
+
+### Debugging on a physical device
+
+- **First boot on device is SLOW** — decoding the audio tree and building caches can take
+  well over 30s before the title screen appears; subsequent launches are much faster. **Don't
+  mistake a slow first boot for a hang.** When capturing logs, wait 60s+ or relaunch before
+  concluding it's stuck.
+- **Stream the app's native logs** (our `[cc …]` / `[ccfs]` `NSLog`s) with:
+  ```bash
+  xcrun devicectl device process launch --console --terminate-existing \
+    --device <UDID> com.example.ccios
+  ```
+  Note `--console` only shows the **host app** stdout, not the WebKit content process.
+- **Black screen, app still alive, JS logs stop with no error** = the **WebContent process
+  died** (often jetsam/OOM), *not* a JS exception (which would log `[cc JSERR]` or show
+  `CRITICAL BUG`). `GameView` implements `webViewWebContentProcessDidTerminate` to log
+  `[cc CRASH]` and reload.
+- **Reproduce JS-level issues on the Simulator** (`make sim`) — there you get the full JS
+  console via `xcrun simctl spawn booted log show` and screenshots via `xcrun simctl io booted
+  screenshot`. **Caveat:** the Simulator's `AudioContext` auto-runs, so suspended-context audio
+  bugs (SFX silent, decode stalls) **do not reproduce there** — only on real hardware.
 
 ---
 
