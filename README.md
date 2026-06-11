@@ -153,6 +153,7 @@ fail-safe** (if unconfigured or unreachable it is a silent no-op and never block
 cc-ios/
 ├── README.md
 ├── LICENSE                       MIT (this wrapper's own code only)
+├── Makefile                      Convenience wrappers (make setup / sim / device / doctor …)
 ├── Package.swift                 SwiftPM: CCWebHost library + macOS harness
 ├── Shared/CCWebHost/             Cross-platform WebKit host (iOS + macOS)
 │   ├── GameSchemeHandler.swift   Custom-scheme file server (+Range, audio patch, mods overlay)
@@ -169,10 +170,14 @@ cc-ios/
 ├── mods/
 │   └── ccios-title-buttons/      CCLoader mod: native Restart/Close buttons on the title screen
 └── tools/
-    ├── webkit-harness/           macOS WKWebView proof harness (SwiftPM executable)
+    ├── setup.sh                  One-shot onboarding: preflight → assets → mods → project
+    ├── preflight.sh              Environment doctor (--fix auto-installs brew tools)
+    ├── find-crosscode.sh         Auto-detect your CrossCode install (Steam/GOG/itch)
+    ├── run-sim.sh                Build + run in the iOS Simulator (one command)
+    ├── ios-build.sh              Build → sign → install → launch on a device
     ├── sync-assets.sh            Copy assets into app/Resources/game + Ogg→M4A transcode
     ├── setup-ccloader.sh         Overlay CCLoader + mods, regenerate mods.json
-    ├── ios-build.sh              One-shot: build → sign → install → launch on device
+    ├── webkit-harness/           macOS WKWebView proof harness (SwiftPM executable)
     ├── save-sync.sh              USB save sync (xcrun devicectl)
     └── save-server.py            Optional wireless save hub (Tailscale)
 ```
@@ -184,105 +189,80 @@ copyrighted or personal is committed.
 
 ## Installation
 
-> **Time:** ~30–60 min the first time (most of it is a one-time Xcode/audio-transcode wait).
-> **You need a Mac.** Building and signing an iOS app requires macOS + Xcode.
+> **You need a Mac.** Building/signing an iOS app requires macOS + Xcode. First run is
+> ~30–60 min, mostly a one-time audio transcode and Xcode build.
 
-### Prerequisites
-
-| Requirement | Why / how |
-|---|---|
-| **macOS** with **full Xcode** | Not just Command Line Tools. Install from the App Store, launch once to accept the license, then `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. |
-| **iOS platform component** | Xcode → Settings → Components → install **iOS** (and the Simulator runtime). |
-| **Homebrew tools** | `brew install xcodegen ffmpeg` — `xcodegen` generates the Xcode project; `ffmpeg` transcodes audio to an iOS-decodable format. |
-| **Your own copy of CrossCode** | Steam / GOG / itch.io. On a Steam macOS install the assets are at `…/Steam/steamapps/common/CrossCode/CrossCode.app/Contents/Resources/app.nw/assets`. |
-| **An Apple ID** | A **free** Apple ID works for personal sideloading (with caveats — see [Apple Developer & signing](#apple-developer--signing)). A paid Apple Developer account ($99/yr) removes the 7-day expiry. *(Device only — the Simulator needs no signing.)* |
-| **An iPhone/iPad** *(for device install)* | iOS 16+, **Developer Mode** enabled, and the Mac **trusted**. |
-
-### 1. Get the code
+### Fast path (automated)
 
 ```bash
-git clone https://github.com/Yoyokrazy/cc-ios.git
-cd cc-ios
+git clone https://github.com/Yoyokrazy/cc-ios.git && cd cc-ios
+make setup        # preflight → find CrossCode → copy+transcode assets → generate project
+make sim          # build + run in the iOS Simulator (no signing needed)
 ```
 
-### 2. Point the tooling at *your* CrossCode files
+That's it for the Simulator. `make setup` (a.k.a. `tools/setup.sh`) is interactive and:
 
-Tell the build where your game's `assets` folder lives (the directory that contains
-`node-webkit.html`). First match wins: `$CCIOS_ASSET_ROOT` → `asset-root.local` → the default
-Steam path.
+1. runs **preflight** and can auto-install the Homebrew tools (`make setup ARGS="--fix"`);
+2. **auto-detects your CrossCode install** (Steam — including extra library folders — GOG, itch,
+   `/Applications`), and asks if it should use it;
+3. copies the assets into the app and **transcodes Ogg→M4A** for iOS audio;
+4. optionally installs **CCLoader + the in-game mod manager + native title buttons**;
+5. generates `app/cc-ios.xcodeproj`.
+
+To run on a **physical iPhone** instead (after the one-time signing setup below):
+
+```bash
+make device       # = tools/ios-build.sh — auto-detects your device + signing team
+```
+
+Fully non-interactive (e.g. scripted): `tools/setup.sh --yes --with-mods --fix`. Check your
+environment any time with `make doctor`. Run `make help` for all targets.
+
+### What you need
+
+`make doctor` verifies all of this for you; here's the list and how to satisfy each:
+
+| Requirement | How |
+|---|---|
+| **macOS** with **full Xcode** | Not just Command Line Tools. Install Xcode from the App Store, launch once, then `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. |
+| **iOS platform + Simulator runtime** | Xcode → Settings → Components, or `xcodebuild -downloadPlatform iOS`. |
+| **xcodegen + ffmpeg** | `brew install xcodegen ffmpeg` — or let `tools/setup.sh --fix` do it. |
+| **Your own copy of CrossCode** | Steam / GOG / itch.io. Auto-detected; otherwise point the tools at it (below). |
+| **An Apple ID** *(device only)* | Free tier works for sideloading; see [Apple Developer & signing](#apple-developer--signing). The Simulator needs no signing. |
+| **An iPhone/iPad** *(device only)* | iOS 16+, **Developer Mode** on, Mac **trusted**. |
+
+If auto-detection can't find your game (non-standard location), point the tools at it and re-run:
 
 ```bash
 echo "/path/to/CrossCode/.../app.nw/assets" > tools/webkit-harness/asset-root.local
 # or, per-shell:  export CCIOS_ASSET_ROOT="/path/to/.../app.nw/assets"
 ```
 
-### 3. (Optional but recommended) Prove it boots — no Xcode, no device
+### What can't be automated
 
-This runs the real game in a macOS WKWebView using the **same** host code the iPhone build uses.
-Fastest way to confirm your asset path is correct before touching Xcode.
+These steps are inherently manual (Apple GUI-only flows, on-device toggles, or licensing):
 
-```bash
-swift run webkit-harness --settle 8 --out proof.png
-# Opens a window, boots the game, writes proof.png, exits 0 on ig.ready.
-```
+- **Installing full Xcode** (it's an App Store download).
+- **Signing your Apple ID into Xcode** (Xcode → Settings → Accounts is GUI-only). Once done, cert
+  minting and provisioning happen on the CLI via `tools/ios-build.sh`.
+- **Enabling Developer Mode** and **trusting the developer certificate** on the iPhone (device
+  Settings; see [Apple Developer & signing](#apple-developer--signing)).
+- **Owning CrossCode** — you supply your own legally-purchased copy.
 
-### 4. Copy your assets into the app (and fix audio)
+### Under the hood (manual equivalents)
 
-```bash
-tools/sync-assets.sh
-```
+`make setup` just orchestrates these scripts; run them individually if you prefer:
 
-This copies your `assets/` into the git-ignored `app/Resources/game/`, then transcodes all
-**1289 Ogg Vorbis** files to **M4A/AAC** (iOS WebKit can't decode Ogg — this prevents a fatal
-audio crash). Expect this to take a few minutes the first time; it parallelizes across cores.
-
-### 5. (Optional) Add CCLoader + mods
-
-Skip this for a vanilla game. To enable the in-game **Mods** menu, the one-click mod manager, and
-the native Restart/Close title buttons:
-
-```bash
-tools/setup-ccloader.sh                              # download CCLoader, restructure for mods
-tools/setup-ccloader.sh --add-mod mods/ccios-title-buttons   # add this repo's title-buttons mod
-```
-
-`setup-ccloader.sh` restructures `app/Resources/game/` into the CCLoader layout, pins browser
-mode, unpacks any packed `.ccmod` files (browser mode can't read inside packed mods), and
-regenerates `mods.json`. The app auto-detects `ccloader/index.html` and boots through it. See
-[Mods](#mods-ccloader) for details.
-
-### 6a. Run in the iOS Simulator (no signing needed — easiest first run)
-
-```bash
-cd app && xcodegen generate && cd ..
-xcodebuild -project app/cc-ios.xcodeproj -scheme cc-ios \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -derivedDataPath build build
-xcrun simctl boot 'iPhone 16' 2>/dev/null; open -a Simulator
-xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/cc-ios.app
-xcrun simctl launch booted com.example.ccios
-# In the Simulator, rotate to landscape: ⌘→
-```
-
-*(Pick any installed Simulator device name; `xcrun simctl list devices` shows them.)*
-
-### 6b. Build, sign, and run on a connected iPhone
-
-Plug in the iPhone, unlock it, and trust the Mac. Then:
-
-```bash
-tools/ios-build.sh
-```
-
-That one script regenerates the project, auto-detects your **device UDID** and **signing team**,
-builds with automatic provisioning (`-allowProvisioningUpdates`), installs via
-`xcrun devicectl`, and launches. Override anything:
-
-```bash
-tools/ios-build.sh --bundle-id com.yourname.ccios --team ABCDE12345 --device <UDID> --no-launch
-```
-
-If signing isn't set up yet, or the first launch fails with a trust prompt, see the next section.
+| Step | Script | What it does |
+|---|---|---|
+| Check environment | `tools/preflight.sh [--fix]` | Verifies Xcode, SDKs, brew tools; `--fix` installs what it can. |
+| Find the game | `tools/find-crosscode.sh` | Prints detected CrossCode asset roots. |
+| Prove it boots | `swift run webkit-harness --settle 8 --out proof.png` | Boots the real game in a macOS WKWebView (no Xcode/device). |
+| Copy + transcode assets | `tools/sync-assets.sh` | Copies your assets into `app/Resources/game/`; Ogg→M4A. |
+| Add CCLoader + mods | `tools/setup-ccloader.sh [--add-mod DIR]` | Installs CCLoader, unpacks `.ccmod`s, regenerates `mods.json`. |
+| Generate project | `cd app && xcodegen generate` | Creates `cc-ios.xcodeproj`. |
+| Run (Simulator) | `tools/run-sim.sh [--device NAME]` | Picks/boots a sim, builds, installs, launches. |
+| Run (device) | `tools/ios-build.sh [--bundle-id … --team … --device …]` | Builds, signs, installs, launches on iPhone. |
 
 ---
 
@@ -314,10 +294,11 @@ AltStore/SideStore, below) once a week.
    ```bash
    export CCIOS_BUNDLE_ID=com.yourname.ccios
    ```
-3. **Mint the certificate.** The easiest one-time way is to open `app/cc-ios.xcodeproj` in Xcode →
-   select the **cc-ios** target → **Signing & Capabilities** → check *Automatically manage
-   signing* → choose your **Personal Team**. Xcode creates the development certificate. After
-   that, `tools/ios-build.sh` works entirely from the CLI.
+3. **Mint the certificate.** Once an Apple ID is in Xcode, `tools/ios-build.sh` mints the
+   development certificate and provisioning profile **from the CLI** (it passes
+   `-allowProvisioningUpdates`) — no need to open the project. If you'd rather do it in the GUI
+   (or CLI provisioning fails), open `app/cc-ios.xcodeproj` → **cc-ios** target → **Signing &
+   Capabilities** → *Automatically manage signing* → your **Personal Team**.
 
 ### On the iPhone
 
