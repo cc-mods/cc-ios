@@ -1,0 +1,61 @@
+name: cc-ios
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    # DEVELOPMENT_TEAM and PRODUCT_BUNDLE_IDENTIFIER are intentionally NOT hard-coded
+    # here so nothing personal is committed. Pass them at build time, e.g.:
+    #   xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX \
+    #     PRODUCT_BUNDLE_IDENTIFIER=com.yourname.ccios
+    # See tools/ios-build.sh which wires this up automatically.
+
+targets:
+  cc-ios:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      # Shared cross-platform WebKit host — the exact code proven by the macOS harness.
+      - path: ../Shared/CCWebHost
+      - path: Sources
+      - path: Resources/Assets.xcassets
+      # Game assets ship as a FOLDER REFERENCE named "game" (preserves directory
+      # structure in the bundle). Populated locally by tools/sync-assets.sh and
+      # gitignored — copyrighted assets are never committed.
+      - path: Resources/game
+        type: folder
+        buildPhase: resources
+        optional: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.ccios
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Sources/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIStatusBarHidden: true
+        UIRequiresFullScreen: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        GCSupportsControllerUserInteraction: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Allow cleartext HTTP to the (private, encrypted) Tailscale save server.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
