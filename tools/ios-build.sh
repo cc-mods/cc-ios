@@ -43,12 +43,20 @@ fi
 xcodebuild -version | head -1
 
 # --- 1. Assets ---------------------------------------------------------------------
+# Consider assets present if EITHER layout exists: the vanilla tree (root node-webkit.html)
+# or the CCLoader overlay (ccloader/index.html with the game under assets/). Checking only
+# the vanilla marker was a trap: after tools/setup-ccloader.sh moves the game under assets/,
+# the root node-webkit.html is gone, so this step would re-run sync-assets.sh — whose
+# `rsync --delete` from the vanilla Steam source WIPES the CCLoader overlay on every build.
 step "Assets"
-if [[ ! -f "$app_dir/Resources/game/node-webkit.html" ]]; then
+game_dir="$app_dir/Resources/game"
+if [[ -f "$game_dir/node-webkit.html" || -f "$game_dir/ccloader/index.html" || -f "$game_dir/assets/node-webkit.html" ]]; then
+  layout="vanilla"
+  [[ -f "$game_dir/ccloader/index.html" ]] && layout="CCLoader"
+  echo "Assets present ($layout): $(find "$game_dir" -type f | wc -l | tr -d ' ') files"
+else
   echo "Game assets not bundled yet; running sync-assets.sh"
   "$repo_root/tools/sync-assets.sh"
-else
-  echo "Assets present: $(find "$app_dir/Resources/game" -type f | wc -l | tr -d ' ') files"
 fi
 
 # --- 2. Team ID --------------------------------------------------------------------

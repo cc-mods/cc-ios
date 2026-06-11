@@ -118,6 +118,48 @@ for mod in "${add_mods[@]:-}"; do
   fi
 done
 
+# --- 4b. Populate each mod's manifest "assets" list (REQUIRED for browser mode) ---------
+# CCLoader can't enumerate folders in browser mode, so a mod's bundled assets are only
+# mapped if its manifest lists them in "assets". When that list is missing, requests for
+# the mod's media (e.g. CCModManager's media/gui/CCModManager.png) 404 — and CrossCode
+# treats a failed resource load at GAME INIT as FATAL (CRITICAL BUG screen). Scan every
+# mod's assets/ dir and write the list back, so this can't regress when a .ccmod is
+# re-unpacked. Safe to re-run.
+echo "Populating mod asset manifests (browser-mode mapping)…"
+python3 - "$game" <<'PY'
+import json, os, sys
+mods_dir = os.path.join(sys.argv[1], "assets", "mods")
+EXTS = (".json", ".json.patch", ".png", ".ogg", ".m4a")
+for entry in sorted(os.listdir(mods_dir)):
+    mod = os.path.join(mods_dir, entry)
+    if not os.path.isdir(mod):
+        continue
+    assets_dir = os.path.join(mod, "assets")
+    if not os.path.isdir(assets_dir):
+        continue
+    # Collect asset paths relative to the mod's assets/ dir (forward slashes).
+    found = []
+    for root, _, files in os.walk(assets_dir):
+        for f in files:
+            if f.endswith(EXTS):
+                rel = os.path.relpath(os.path.join(root, f), assets_dir).replace(os.sep, "/")
+                found.append(rel)
+    if not found:
+        continue
+    manifest = os.path.join(mod, "ccmod.json")
+    if not os.path.exists(manifest):
+        manifest = os.path.join(mod, "package.json")
+    if not os.path.exists(manifest):
+        continue
+    try:
+        data = json.load(open(manifest))
+    except Exception:
+        continue
+    data["assets"] = sorted(found)
+    json.dump(data, open(manifest, "w"), indent="\t")
+    print("  %s: %d asset(s) registered" % (entry, len(found)))
+PY
+
 # --- 5. Regenerate mods.json from whatever is in assets/mods/ ---------------------------
 echo "Writing mods.json…"
 python3 - "$game" <<'PY'
