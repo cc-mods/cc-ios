@@ -133,13 +133,18 @@ struct GameView: UIViewRepresentable {
 
         /// Dispatches a DOM event on `window` (e.g. focus/blur) to drive the game's own
         /// pause/resume logic, and nudges any suspended Web Audio context back to life.
+        /// CrossCode's Web Audio context is nested at `ig.soundManager.context.context`
+        /// (the outer `.context` is the engine's wrapper), so resume must target that.
         private func dispatchWindowEvent(_ name: String) {
             let js = """
             (function(){
               try { window.dispatchEvent(new Event(\"\(name)\")); } catch (e) {}
               try {
-                var ctx = window.ig && ig.soundManager && ig.soundManager.context;
-                if (ctx && ctx.state === "suspended" && \"\(name)\" === "focus") { ctx.resume(); }
+                if (\"\(name)\" === "focus") {
+                  var wrap = window.ig && ig.soundManager && ig.soundManager.context;
+                  var ctx = wrap && wrap.context;
+                  if (ctx && ctx.state === "suspended" && ctx.resume) { ctx.resume(); }
+                }
               } catch (e) {}
             })();
             """

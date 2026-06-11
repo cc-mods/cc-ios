@@ -83,6 +83,9 @@ public enum GameWebHost {
         controller.addUserScript(Bootstrap.userScript())
         // Gamepad shim: backs navigator.getGamepads() with a native-fed virtual pad.
         controller.addUserScript(Bootstrap.gamepadShimUserScript())
+        // iOS Web Audio unlock: resume the (initially suspended) AudioContext on the first
+        // user gesture so sound effects play, not just the HTML5-audio background music.
+        controller.addUserScript(Bootstrap.webAudioUnlockUserScript())
         if showFPS {
             controller.addUserScript(Bootstrap.fpsOverlayUserScript())
         }

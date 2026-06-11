@@ -111,16 +111,28 @@ In WebKit it resolves to **BROWSER** (assets via XHR, saves via `localStorage`, 
 - Under CCLoader, browser mode is pinned in `ccloader/js/normalize.js` (`window.isBrowser = true`).
   The `require("fs")` shim used for mod installs is provided *without* tripping DESKTOP detection.
 
-### Audio — iOS cannot decode Ogg Vorbis
+### Audio — iOS cannot decode Ogg Vorbis (and Web Audio starts suspended)
 The game ships ~1289 `.ogg` files and prefers Ogg; iOS WebKit raises a fatal "Web Audio Load
-Error". Fix is two-part and **both halves are required**:
+Error" (verified: WebKit `canPlayType('audio/ogg')` is `""`, and `decodeAudioData` rejects every
+Ogg — so the `ffmpeg` transcode is genuinely required, not optional). The fix has **three** parts,
+all required:
 1. Transcode `.ogg → .m4a` (AAC) at asset-sync time (`tools/sync-assets.sh`, needs `ffmpeg`).
 2. Patch `game.compiled.js` at serve time (`GameSchemeHandler.preferM4AAudio`): put M4A first **and**
    force the format selector to accept it — WebKit lies and reports the engine's M4A MIME as
    unplayable, so a plain reorder is not enough.
+3. **Make Web Audio actually render on iOS.** CrossCode plays background music through HTML5
+   `<audio>` (autoplays once `mediaTypesRequiringUserActionForPlayback = []`) but plays all SFX
+   through Web Audio. An `AudioContext` starts **suspended** on iOS; under the `.ambient` audio
+   session it stays effectively silent, so the classic symptom is *music plays but SFX don't*. Two
+   things keep it rendering: the app sets `AVAudioSession` to **`.playback`** (`AudioSession.swift`),
+   and `Bootstrap.webAudioUnlockJavaScript` resumes the context (nested at
+   `ig.soundManager.context.context`, **not** `ig.soundManager.context`) on the first user gesture
+   and on focus/visibility. The engine's own per-frame `resume()` only succeeds once the session
+   permits it.
 
-Don't remove either half. Verify after audio changes: `format.ext == "m4a"`, `ig.Sound.enabled`,
-AudioContext `running`.
+Don't remove any part. Verify after audio changes: `format.ext == "m4a"`, `ig.Sound.enabled`,
+and `ig.soundManager.context.context.state === "running"`. SFX audibility itself only reproduces on
+a real device (the macOS harness and the Simulator don't gate Web Audio the way iOS hardware does).
 
 ### Saves
 The entire save is one `localStorage` blob under key `cc.save`, **byte-identical** to the desktop
