@@ -151,9 +151,12 @@ fail-safe** (if unconfigured or unreachable it is a silent no-op and never block
 
 ```
 cc-ios/
-├── README.md
+├── README.md                     User-facing guide (this file)
+├── AGENTS.md                     Working guide for AI agents + contributors (start here to hack)
+├── CONTRIBUTING.md               How to contribute; ground rules
 ├── LICENSE                       MIT (this wrapper's own code only)
 ├── Makefile                      Convenience wrappers (make setup / sim / device / doctor …)
+├── .github/copilot-instructions.md  Short Copilot rules (points to AGENTS.md)
 ├── Package.swift                 SwiftPM: CCWebHost library + macOS harness
 ├── Shared/CCWebHost/             Cross-platform WebKit host (iOS + macOS)
 │   ├── GameSchemeHandler.swift   Custom-scheme file server (+Range, audio patch, mods overlay)
@@ -200,7 +203,14 @@ make setup        # preflight → find CrossCode → copy+transcode assets → g
 make sim          # build + run in the iOS Simulator (no signing needed)
 ```
 
-That's it for the Simulator. `make setup` (a.k.a. `tools/setup.sh`) is interactive and:
+That's it for the Simulator. Prefer a single command? This does everything (clone aside) and
+launches the Simulator at the end, no prompts:
+
+```bash
+make setup ARGS="--yes --with-mods --fix --sim"
+```
+
+`make setup` (a.k.a. `tools/setup.sh`) is interactive by default and:
 
 1. runs **preflight** and can auto-install the Homebrew tools (`make setup ARGS="--fix"`);
 2. **auto-detects your CrossCode install** (Steam — including extra library folders — GOG, itch,
@@ -215,8 +225,9 @@ To run on a **physical iPhone** instead (after the one-time signing setup below)
 make device       # = tools/ios-build.sh — auto-detects your device + signing team
 ```
 
-Fully non-interactive (e.g. scripted): `tools/setup.sh --yes --with-mods --fix`. Check your
-environment any time with `make doctor`. Run `make help` for all targets.
+Fully non-interactive (e.g. for scripts or AI agents): add `--yes` (accepts the first detected
+game copy and sensible defaults). Check your environment any time with `make doctor`. Run
+`make help` for all targets.
 
 ### What you need
 
@@ -459,6 +470,14 @@ CrossCode to use it; you are responsible for complying with the game's license.
   paid Apple Developer account.
 - This wrapper's **own source code** is MIT licensed (see [`LICENSE`](LICENSE)). CrossCode,
   CCLoader, CCModManager, and CrossAndroid are the property of their respective owners.
+
+## Contributing
+
+Contributions welcome. Start with **[`AGENTS.md`](AGENTS.md)** — it documents the architecture, the
+non-obvious runtime invariants that keep CrossCode booting (browser-mode detection, the iOS audio
+fix, CCLoader/mods, controller mapping), and the harness-first dev loop. See
+**[`CONTRIBUTING.md`](CONTRIBUTING.md)** for ground rules (no game assets, no personal data) and PR
+conventions. AI agents: `AGENTS.md` and `.github/copilot-instructions.md` are written for you.
 
 ## Credits
 
