@@ -52,6 +52,11 @@ proof.png
 harness-out/
 *.local
 
+# ---- cc-ios save-sync config (may hold a private IP + bearer token; never commit) ----
+cc-sync.json
+**/cc-sync.json
+cc.save
+
 # ---- iOS bundled game assets (copyrighted; never commit) ----
 app/Resources/game/
 app/cc-ios.xcodeproj/
