@@ -3,6 +3,10 @@
 	"version": "1.0.0",
 	"title": "cc-ios Title Buttons",
 	"description": "Adds native Restart Game and Close Game buttons to the title-screen menu (cc-ios iOS wrapper).",
+	"repository": "https://github.com/Yoyokrazy/cc-ios",
+	"homepage": "https://github.com/Yoyokrazy/cc-ios",
+	"authors": ["Yoyokrazy"],
+	"tags": ["QoL"],
 	"prestart": "prestart.js",
 	"dependencies": {
 		"crosscode": "^1.1.0 || 1.0.2"
