@@ -138,9 +138,12 @@ all required:
      never seizes the route, and boots fine. Proven by toggling only the category (both builds
      vanilla): `.playback` → black, `.ambient` → title screen. The Simulator does **not** reproduce
      this (no real `mediaserverd`/hardware route). Trade-off: `.ambient` obeys the hardware mute
-     switch, so audio is silenced when the ringer is on silent. Playing through the silent switch
-     would need `.playback` activated **after** boot (e.g. deferred to the first gesture) or with
-     `.mixWithOthers` — both **must be device-tested** before adopting.
+     switch, so audio is silenced when the ringer is on silent. **This is accepted as final.** A
+     deferred `.playback` upgrade (activate `.ambient` at boot, then switch to `.playback` on the
+     first user gesture) was built and device-tested: it boots fine but **still does not play
+     through the silent switch**, because the WebView's audio is produced by the **WebContent
+     process**, which owns its own audio session — the host app's category doesn't govern it. So
+     the extra machinery bought nothing and was removed. Keep audio simple: `.ambient`, full stop.
 4. **Force the Web Audio engine on (the in-game toggle is a footgun).** CrossCode's "use Web Audio"
    option (`options.useWebAudio`, stored as its own `localStorage` key — *not* in `cc.save`) selects
    the engine **once at boot**: `var m=localStorage.getItem("options.useWebAudio")!="false", m=…&&m`
