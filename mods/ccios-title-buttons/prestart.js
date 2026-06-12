@@ -43,11 +43,13 @@
 				this.buttons[i].hook.pos.y += slot * 2;
 			}
 
-			// Use focus indices well clear of the game's (0–5) to avoid nav collisions.
-			this._cciosButton("Restart Game", 12 + slot, 20, function () {
+			// Focus indices continue the game's own column (new=…,load=3,options=4) so D-pad
+			// navigation flows in visual order: …Options → Restart → Close. Higher index = lower
+			// on screen, matching how the buttons are stacked (Close sits at the very bottom).
+			this._cciosButton("Restart Game", 12 + slot, 6, function () {
 				if (!postControl("restart")) { try { window.location.reload(); } catch (e) {} }
 			});
-			this._cciosButton("Close Game", 12, 21, function () {
+			this._cciosButton("Close Game", 12, 7, function () {
 				postControl("quit");
 			});
 		},
