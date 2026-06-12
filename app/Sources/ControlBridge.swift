@@ -19,6 +19,18 @@ final class ControlBridge: NSObject, WKScriptMessageHandler {
                                didReceive message: WKScriptMessage) {
         guard message.name == Bootstrap.controlMessageHandlerName,
               let action = message.body as? String else { return }
+
+        // External links (CCModManager "visit repository/author") arrive as "link:<url>".
+        if action.hasPrefix("link:") {
+            let urlString = String(action.dropFirst("link:".count))
+            guard let url = URL(string: urlString),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else { return }
+            NSLog("[cc link] opening external URL: %@", url.absoluteString)
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            return
+        }
+
         switch action {
         case "restart":
             NSLog("[cc control] restart")

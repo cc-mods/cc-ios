@@ -80,6 +80,8 @@ public enum GameWebHost {
         if modSupport, #available(iOS 14.0, macOS 11.0, *) {
             controller.addUserScript(Bootstrap.fsShimUserScript())
         }
+        // External (http/https) links → system browser (CCModManager repo/author links).
+        controller.addUserScript(Bootstrap.externalLinkUserScript())
         controller.addUserScript(Bootstrap.userScript())
         // Gamepad shim: backs navigator.getGamepads() with a native-fed virtual pad.
         controller.addUserScript(Bootstrap.gamepadShimUserScript())

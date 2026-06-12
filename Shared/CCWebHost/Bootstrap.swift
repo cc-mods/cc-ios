@@ -172,9 +172,13 @@ public enum Bootstrap {
         resolve: function () { return Array.prototype.join.call(arguments, "/").replace(/\/+/g, "/"); }
       };
 
-      // nw.gui stub: CrossCode only touches this on external-link clicks; route to window.open.
+      // nw.gui stub: CrossCode only touches this on external-link clicks; route to the
+      // native external-link hook (see externalLinkJavaScript), falling back to window.open.
       var nwGuiShim = {
-        Shell: { openExternal: function (u) { try { window.open(u, "_blank"); } catch (e) {} } },
+        Shell: { openExternal: function (u) {
+          try { if (window.__ccOpenExternal && window.__ccOpenExternal(u)) return; } catch (e) {}
+          try { window.open(u, "_blank"); } catch (e) {}
+        } },
         Window: { get: function () { return { isFullscreen: false, enterFullscreen: function () {},
                   leaveFullscreen: function () {}, close: function () {}, on: function () {},
                   showDevTools: function () {}, isDevToolsOpen: function () { return false; } }; },
@@ -196,6 +200,46 @@ public enum Bootstrap {
         WKUserScript(source: fsShimJavaScript,
                      injectionTime: .atDocumentStart,
                      forMainFrameOnly: true)
+    }
+
+    /// Routes external (http/https) links to the native host so they open in the system
+    /// browser. CrossCode/CCModManager open repo/author links with `window.open(url,"_blank")`
+    /// in browser mode; in a WKWebView that needs a `WKUIDelegate` *and* a user gesture, and
+    /// the gamepad-driven d-pad "visit" action is not a WebKit user gesture — so the popup is
+    /// silently suppressed. We instead override `window.open` to post the URL straight to the
+    /// `cccontrol` handler (no gesture/popup needed), which opens it via `UIApplication`.
+    /// All frames, documentStart, so it's in place before CCLoader/CCModManager run.
+    public static let externalLinkJavaScript: String = #"""
+    (function () {
+      "use strict";
+      if (window.__ccLinkHookInstalled) return;
+      window.__ccLinkHookInstalled = true;
+
+      function openExternal(u) {
+        try {
+          var s = String(u);
+          if (/^https?:\/\//i.test(s)) {
+            window.webkit.messageHandlers.cccontrol.postMessage("link:" + s);
+            return true;
+          }
+        } catch (e) {}
+        return false;
+      }
+      window.__ccOpenExternal = openExternal;
+
+      var origOpen = (typeof window.open === "function") ? window.open.bind(window) : null;
+      window.open = function (u, name, features) {
+        if (openExternal(u)) return null;            // external link → system browser
+        return origOpen ? origOpen(u, name, features) : null;
+      };
+    })();
+    """#
+
+    /// documentStart `WKUserScript` (all frames) installing the external-link hook.
+    public static func externalLinkUserScript() -> WKUserScript {
+        WKUserScript(source: externalLinkJavaScript,
+                     injectionTime: .atDocumentStart,
+                     forMainFrameOnly: false)
     }
 
     public static let javaScript: String = #"""
