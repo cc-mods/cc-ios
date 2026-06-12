@@ -43,7 +43,7 @@ sync:
 
 mods:
 	tools/setup-ccloader.sh $(ARGS)
-	tools/setup-ccloader.sh --add-mod mods/ccios-title-buttons
+	tools/setup-ccloader.sh --add-mod mods/cc-ios-title-buttons
 
 harness:
 	swift run webkit-harness --settle 8 --out proof.png $(ARGS)

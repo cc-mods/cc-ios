@@ -128,7 +128,7 @@ case "$mods" in
 esac
 if [[ "$want_mods" -eq 1 ]]; then
   tools/setup-ccloader.sh || die "CCLoader setup failed."
-  tools/setup-ccloader.sh --add-mod mods/ccios-title-buttons || die "adding title-buttons mod failed."
+  tools/setup-ccloader.sh --add-mod mods/cc-ios-title-buttons || die "adding title-buttons mod failed."
 fi
 
 # --- 5. Generate the Xcode project ----------------------------------------------------

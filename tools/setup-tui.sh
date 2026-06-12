@@ -248,7 +248,7 @@ do_mods() {
   local k; k="$(ask_key "   Install CCLoader + in-game Mod Manager + native title buttons?  [Y] yes  [s] skip" y)"
   case "$k" in s|S|n|N) set_stage mods skip "skipped"; return 0;; esac
   run_step mods "overlaying CCLoader" -- tools/setup-ccloader.sh \
-    && run_step mods "adding title-buttons mod" -- tools/setup-ccloader.sh --add-mod mods/ccios-title-buttons
+    && run_step mods "adding title-buttons mod" -- tools/setup-ccloader.sh --add-mod mods/cc-ios-title-buttons
   probe_mods; probe_assets
 }
 

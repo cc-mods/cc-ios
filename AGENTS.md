@@ -93,7 +93,7 @@ app/                     iOS app (SwiftUI). Consumes Shared/CCWebHost.
   Resources/game/          ← your CrossCode assets (git-ignored, populated by tools/sync-assets.sh)
 
 tools/                   Automation + the macOS proof harness (see README "Under the hood").
-mods/ccios-title-buttons/  Bundled CCLoader mod: native Restart/Close buttons on the title screen.
+mods/cc-ios-title-buttons/  Bundled CCLoader mod: native Restart/Close buttons on the title screen.
 ```
 
 The macOS harness (`tools/webkit-harness`) and the iOS app are two front-ends over the **same**
@@ -237,7 +237,7 @@ axes 0-3). The native bridge feeds `window.__ccpad`. **GameController's y-axis i
 - **The bundle can come back as vanilla** (root `node-webkit.html`, no `ccloader/`) — e.g. after a
   re-sync or across sessions. Then there's no Mods tab and no title buttons. Check the layout
   (`ccloader/index.html` present?) and re-run `tools/setup-ccloader.sh` (+ `--add-mod
-  mods/ccios-title-buttons`) to restore it.
+  mods/cc-ios-title-buttons`) to restore it.
 - **`sync-assets.sh` is destructive (`rsync --delete`) and resets to vanilla** — it repopulates
   `app/Resources/game` from the raw Steam tree, wiping any CCLoader overlay. So the pipeline order
   is **sync-assets → setup-ccloader**, never the reverse, and you must not re-run sync-assets after

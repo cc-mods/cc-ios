@@ -1,5 +1,5 @@
 {
-	"id": "ccios-title-buttons",
+	"id": "cc-ios-title-buttons",
 	"version": "1.0.0",
 	"title": "cc-ios Title Buttons",
 	"description": "Adds native Restart Game and Close Game buttons to the title-screen menu (cc-ios iOS wrapper).",

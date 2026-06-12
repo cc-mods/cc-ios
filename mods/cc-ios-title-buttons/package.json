@@ -1,5 +1,5 @@
 {
-	"name": "ccios-title-buttons",
+	"name": "cc-ios-title-buttons",
 	"version": "1.0.0",
 	"prestart": "prestart.js",
 	"ccmodDependencies": {
