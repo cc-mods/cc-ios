@@ -67,6 +67,7 @@ struct GameView: UIViewRepresentable {
 
         context.coordinator.attach(to: webView)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         AudioSession.activate()
         UIApplication.shared.isIdleTimerDisabled = true
 
@@ -84,7 +85,7 @@ struct GameView: UIViewRepresentable {
     /// Receives console/error/status messages posted by the bootstrap script, and owns
     /// the app-lifecycle wiring (pause/resume + audio), the controller bridge, and the
     /// save bridge for the hosted game.
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
         private weak var webView: WKWebView?
         let saveBridge = SaveBridge()
         let controllerBridge = ControllerBridge()
@@ -178,6 +179,45 @@ struct GameView: UIViewRepresentable {
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             NSLog("[cc CRASH] WebContent process terminated (likely OOM); reloading")
             webView.reload()
+        }
+
+        // MARK: - External links → system browser
+
+        /// CrossCode and CCModManager open repo/author links with `window.open(url, "_blank")`
+        /// in browser mode. In a WKWebView that asks the UI delegate to create a new web view;
+        /// we don't host secondary web views, so route the URL to Safari and return nil (which
+        /// is why these links did nothing before — there was no `WKUIDelegate`).
+        func webView(_ webView: WKWebView,
+                     createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            if let url = navigationAction.request.url { openExternally(url) }
+            return nil
+        }
+
+        /// Also catch in-frame external link activations (e.g. an `<a href>` click): send
+        /// http(s) link navigations to Safari and keep the game's own `ccgame://` loads (and
+        /// any data:/blob:/about: navigations) in-view. Non-link/iframe loads are untouched.
+        func webView(_ webView: WKWebView,
+                     decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               scheme == "http" || scheme == "https",
+               navigationAction.navigationType == .linkActivated || navigationAction.targetFrame == nil {
+                openExternally(url)
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+
+        /// Opens a vetted http(s) URL in the system browser. Other schemes are ignored — the
+        /// game's assets use the internal `ccgame://` scheme and must never leave the app.
+        private func openExternally(_ url: URL) {
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+            NSLog("[cc link] opening external URL: %@", url.absoluteString)
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
         }
     }
 
