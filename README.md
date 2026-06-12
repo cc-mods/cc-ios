@@ -120,22 +120,6 @@ rm -f cc-sync.json               # optional: drop the local config
 **Tailscale itself** is untouched. cc-ios uses no iCloud, App Groups, or Keychain, so nothing is
 left behind elsewhere. Your **desktop `cc.save`** (via Steam Cloud) is unaffected.
 
-## FAQ
-
-**My controller's Home/Guide button opens Apple's Game Overlay (or the Games app) instead of
-acting as a game button.** That's an iOS system behavior, not something cc-ios (or any app) can
-disable — the Home button is system-reserved. Turn it off in **Settings → Game Controller** (this
-entry only appears once you've paired a controller) and set the **Home Button** / controller
-shortcut action to **Off**. On macOS the equivalent is **System Settings → Game Controllers →
-Controller Shortcut**. CrossCode doesn't use that button anyway, so disabling the shortcut loses
-nothing.
-
-**The app stops opening after about a week.** Free Apple ID signing certs expire after 7 days —
-re-run `make device`, or use AltStore / SideStore to refresh over Wi-Fi.
-
-**No Mods menu / the title-screen buttons are gone.** A re-sync of assets resets the game to
-vanilla. Re-run `make mods` (CCLoader + the title buttons) and rebuild.
-
 ## Legal
 
 cc-ios is an unofficial fan-made wrapper, **not affiliated with, authorized, or endorsed by Radical
