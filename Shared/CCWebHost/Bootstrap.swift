@@ -437,7 +437,7 @@ public enum Bootstrap {
                      forMainFrameOnly: true)
     }
 
-    /// JS that draws a small live FPS counter in the **top-right** corner, over the game.
+    /// JS that draws a small live FPS counter in the **top-left** corner, over the game.
     ///
     /// Measures real frames via `requestAnimationFrame` (independent of the engine's target
     /// `ig.system.fps`), updating ~2×/sec. Self-healing against CCLoader's `document.write`
@@ -452,14 +452,15 @@ public enum Bootstrap {
       var el = null, frames = 0, last = (performance && performance.now) ? performance.now() : Date.now(), fps = 0;
       var rafId = null;
 
-      function hasGameCanvas() {
-        try { return !!document.querySelector("#canvas, canvas"); } catch (e) { return false; }
-      }
+      // Render only in the top frame (the visible page). Earlier this gated on finding the
+      // game canvas in the current frame, on the assumption CCLoader hosts the game in a child
+      // iframe — but it doesn't (the canvas lives in the main document), so on device that gate
+      // could suppress the overlay entirely. A fixed-position element in the top frame is always
+      // on-screen, and its requestAnimationFrame cadence reflects the display refresh.
+      var isTopFrame = (function () { try { return window === window.top; } catch (e) { return true; } })();
 
       function ensureEl() {
-        // Only render in the frame that actually hosts the game canvas. Under CCLoader
-        // that's the child iframe; for a direct boot it's the main frame.
-        if (!hasGameCanvas()) return null;
+        if (!isTopFrame) return null;
         var root = document.body || document.documentElement;
         if (!root) return null;
         if (el && el.parentNode) return el;
@@ -468,7 +469,7 @@ public enum Bootstrap {
           el = document.createElement("div");
           el.id = "ccios-fps";
           el.style.cssText = [
-            "position:fixed", "top:6px", "right:8px", "z-index:2147483647",
+            "position:fixed", "top:6px", "left:8px", "z-index:2147483647",
             "font:700 12px ui-monospace,Menlo,monospace", "padding:2px 6px",
             "color:#7CFC8A", "background:rgba(0,0,0,0.55)", "border-radius:6px",
             "pointer-events:none", "-webkit-user-select:none", "user-select:none"
