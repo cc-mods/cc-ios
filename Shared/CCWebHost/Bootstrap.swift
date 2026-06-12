@@ -91,7 +91,20 @@ public enum Bootstrap {
           });
         },
         mkdir: function (p) { return call("mkdir", { path: String(p) }).then(function () {}); },
-        readdir: function (p) { return call("readdir", { path: String(p) }); },
+        readdir: function (p, opts) {
+          var withTypes = opts && (opts === true || opts.withFileTypes);
+          return call("readdir", { path: String(p) }).then(function (list) {
+            list = list || [];
+            // Native now returns [{name, dir}]; tolerate a legacy [String] reply too.
+            return list.map(function (e) {
+              var name = (e && typeof e === "object") ? e.name : e;
+              if (!withTypes) return name;
+              var isDir = !!(e && typeof e === "object" && e.dir);
+              return { name: name, isDirectory: function () { return isDir; },
+                       isFile: function () { return !isDir; }, isSymbolicLink: function () { return false; } };
+            });
+          });
+        },
         stat: function (p) {
           return call("stat", { path: String(p) }).then(function (s) {
             if (!s || !s.exists) { var e = new Error("ENOENT"); e.code = "ENOENT"; throw e; }
@@ -135,7 +148,8 @@ public enum Bootstrap {
         },
         readdir: function (p) {
           var done = lastFn(arguments);
-          promises.readdir(p).then(function (l) { done(null, l); }, done);
+          var opts = (typeof arguments[1] !== "function") ? arguments[1] : undefined;
+          promises.readdir(p, opts).then(function (l) { done(null, l); }, done);
         },
         stat: function (p) {
           var done = lastFn(arguments);

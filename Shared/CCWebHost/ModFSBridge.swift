@@ -106,8 +106,16 @@ public final class ModFSBridge: NSObject, WKScriptMessageHandlerWithReply {
             } catch { replyHandler(nil, "mkdir: \(error.localizedDescription)") }
 
         case "readdir":
-            let names = (try? fm.contentsOfDirectory(atPath: url.path)) ?? []
-            replyHandler(names, nil)
+            // Return name + directory flag per entry so the JS shim can honor Node's
+            // `{ withFileTypes: true }` (callers then expect Dirent objects with
+            // `.isDirectory()`). One round-trip instead of a stat per entry.
+            let entries = (try? fm.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+            let listing: [[String: Any]] = entries.map { child in
+                let isDir = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                return ["name": child.lastPathComponent, "dir": isDir]
+            }
+            replyHandler(listing, nil)
 
         case "stat":
             var isDir: ObjCBool = false
