@@ -437,73 +437,66 @@ public enum Bootstrap {
                      forMainFrameOnly: true)
     }
 
-    /// JS that draws a small live FPS counter in the **top-left** corner, over the game.
-    ///
-    /// Measures real frames via `requestAnimationFrame` (independent of the engine's target
-    /// `ig.system.fps`), updating ~2×/sec. Self-healing against CCLoader's `document.write`
-    /// by re-attaching its element from a persistent `window` timer. Colour-coded:
-    /// green ≥55, amber ≥30, red below.
+    /// JS that measures the real frame rate via `requestAnimationFrame` (independent of the
+    /// engine's target `ig.system.fps`) and posts it to the native host ~2×/sec as
+    /// `{type:"fps", value:N}`. The counter itself is drawn by a **native** overlay
+    /// (see `GameView`): on iOS the game's hardware-composited WebGL canvas paints above any
+    /// in-page DOM element regardless of `z-index`, so an HTML overlay is invisible in-game —
+    /// a native view above the `WKWebView` is the only reliable way to show it. Measures only
+    /// in the top frame and re-arms on focus/visibility so backgrounding can't stall the loop.
     public static let fpsOverlayJavaScript: String = #"""
     (function () {
       "use strict";
       if (window.__ccFpsInstalled) return;
       window.__ccFpsInstalled = true;
+      // Only the top frame measures + reports (CCLoader runs the game in the main document).
+      try { if (window !== window.top) return; } catch (e) {}
 
-      var el = null, frames = 0, last = (performance && performance.now) ? performance.now() : Date.now(), fps = 0;
-      var rafId = null;
+      var frames = 0, rafId = null;
+      function nowMs() { return (performance && performance.now) ? performance.now() : Date.now(); }
+      var last = nowMs();
 
-      // Render only in the top frame (the visible page). Earlier this gated on finding the
-      // game canvas in the current frame, on the assumption CCLoader hosts the game in a child
-      // iframe — but it doesn't (the canvas lives in the main document), so on device that gate
-      // could suppress the overlay entirely. A fixed-position element in the top frame is always
-      // on-screen, and its requestAnimationFrame cadence reflects the display refresh.
-      var isTopFrame = (function () { try { return window === window.top; } catch (e) { return true; } })();
+      function report(fps) {
+        try { window.webkit.messageHandlers.cchost.postMessage({ type: "fps", value: fps }); } catch (e) {}
+      }
 
-      function ensureEl() {
-        if (!isTopFrame) return null;
-        var root = document.body || document.documentElement;
-        if (!root) return null;
-        if (el && el.parentNode) return el;
-        el = document.getElementById("ccios-fps");
-        if (!el) {
-          el = document.createElement("div");
-          el.id = "ccios-fps";
-          el.style.cssText = [
-            "position:fixed", "top:6px", "left:8px", "z-index:2147483647",
-            "font:700 12px ui-monospace,Menlo,monospace", "padding:2px 6px",
-            "color:#7CFC8A", "background:rgba(0,0,0,0.55)", "border-radius:6px",
-            "pointer-events:none", "-webkit-user-select:none", "user-select:none"
-          ].join(";");
-          root.appendChild(el);
-        }
-        return el;
+      // Report the game canvas's left edge as a fraction of the viewport so the native FPS
+      // label can sit just *outside* the canvas, in the black letterbox bar. Only posts when
+      // it changes meaningfully (boot, rotation, resize).
+      var lastLeftFrac = -1;
+      function reportLayout() {
+        try {
+          var c = document.querySelector("#canvas, canvas");
+          if (!c) return;
+          var w = window.innerWidth || 1;
+          var frac = c.getBoundingClientRect().left / w;
+          if (frac < 0) frac = 0;
+          if (Math.abs(frac - lastLeftFrac) > 0.004) {
+            lastLeftFrac = frac;
+            window.webkit.messageHandlers.cchost.postMessage({ type: "fpslayout", leftFrac: frac });
+          }
+        } catch (e) {}
       }
 
       function frame(now) {
-        // Never let an exception kill the loop's tail call below.
         try {
           frames++;
           var dt = now - last;
           if (dt >= 500) {
-            fps = Math.round((frames * 1000) / dt);
+            report(Math.round((frames * 1000) / dt));
+            reportLayout();
             frames = 0; last = now;
-            var e = ensureEl();
-            if (e) {
-              e.textContent = fps + " FPS";
-              e.style.color = fps >= 55 ? "#7CFC8A" : (fps >= 30 ? "#FFD24A" : "#FF6B6B");
-            }
           }
-        } catch (e2) {}
+        } catch (e) {}
         rafId = requestAnimationFrame(frame);
       }
 
       // iOS can drop the single in-flight requestAnimationFrame callback when the WebContent
-      // process is suspended on backgrounding, permanently stalling this loop (the overlay
-      // "disappears" until relaunch). Re-arm on return-to-foreground: cancel any stale pending
-      // frame and start exactly one fresh loop, so we never double-count.
+      // process is suspended on backgrounding, permanently stalling this loop. Re-arm on
+      // return-to-foreground: cancel any stale pending frame and start exactly one fresh loop.
       function kick() {
         if (rafId !== null) { try { cancelAnimationFrame(rafId); } catch (e) {} }
-        last = (performance && performance.now) ? performance.now() : Date.now();
+        last = nowMs();
         frames = 0;
         rafId = requestAnimationFrame(frame);
       }
