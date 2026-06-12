@@ -248,6 +248,38 @@ axes 0-3). The native bridge feeds `window.__ccpad`. **GameController's y-axis i
   The guard now also accepts `ccloader/index.html` / `assets/node-webkit.html`. When a build
   mysteriously loses mods, suspect an asset re-sync first.
 
+### Node shimming for mods (`Bootstrap.fsShimJavaScript`)
+CrossCode mods are written for the **NW.js desktop** runtime, so they `require()` Node core
+modules. In BROWSER mode there is no Node, so `window.require` is a shim. Surveyed across the
+bundled mods + CCLoader, the real demand is `fs`, `path`, `util`, `assert`, `events`, `nw.gui`.
+What the shim provides, and the **hard limits**:
+
+- **`fs`** — async + Node-callback styles via the native `ModFSBridge` (`writeFile/readFile/mkdir/
+  readdir/stat/unlink/...`), backed by the writable `Documents/mods` overlay. **Synchronous reads**
+  (`readFileSync`/`existsSync`/`statSync`) are backed by a **synchronous `XMLHttpRequest` against
+  `ccgame://game/<path>`** — the scheme handler serves the bundle+overlay and responds synchronously,
+  same as the game's own asset loads, so this works. `readdir(... {withFileTypes:true})` returns
+  `Dirent` objects (the native side returns `{name,dir}` per entry; `statSync` reads the `X-CC-Dir`
+  response header the handler sets on directories).
+- **Hard ceiling — no synchronous *writes*, no sync *directory listing*.** The native bridge is
+  async-only (`WKScriptMessageHandlerWithReply`), and sync XHR can't list a dir. So `writeFileSync`,
+  `mkdirSync`, `readdirSync` **throw `ENOSYS` on purpose** — a clear error beats a silent wrong value.
+  A mod that needs sync writes won't work on iOS; that's a WKWebView constraint, not a bug to fix.
+- **Pure-JS modules** — `path` (complete: join/dirname/basename/extname/normalize/resolve/relative/
+  parse/format/isAbsolute), `util` (inherits/promisify/format/inspect/type guards), `assert`, and
+  `events.EventEmitter`. Cheap, safe, no I/O.
+- **`http`/`https`** — mapped onto `fetch` with a minimal EventEmitter response
+  (`.on("data"|"end"|"error")`). Covers "fetch a URL, read the body"; **not** streaming/sockets/keep-alive.
+- **Unknown modules** (`os` is partial; `child_process`, native `.node` addons, `electron`, real
+  `crypto` are **not** shimmable on iOS) return a benign `{}` **and `console.warn`** so the gap is
+  visible. Returning `{}` keeps a mod that only conditionally uses the module loadable; a
+  plausible-but-wrong shim would be worse than a missing one (silent corruption vs. a clear failure).
+
+Net: this **improves the odds for well-behaved mods**, it does not *guarantee* arbitrary ones. When
+adding to the shim, prefer pure-JS or sync-XHR-backed reads; never fake a sync write or return a
+lie. The `dirent.isDirectory` crash (fixed in the readdir change) is the canonical "a real mod used
+an fs feature we hadn't implemented" failure — expect more of that shape and add narrowly.
+
 ---
 
 ## Development workflow

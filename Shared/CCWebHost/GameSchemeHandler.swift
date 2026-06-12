@@ -101,7 +101,10 @@ public final class GameSchemeHandler: NSObject, WKURLSchemeHandler {
             let headers = [
                 "Content-Type": "text/plain; charset=utf-8",
                 "Content-Length": "0",
-                "Access-Control-Allow-Origin": "*"
+                "Access-Control-Allow-Origin": "*",
+                // Lets the JS fs shim's statSync() report isDirectory() accurately (it can't
+                // tell a directory from an empty file by body alone).
+                "X-CC-Dir": "1"
             ]
             send(urlSchemeTask, url: url, status: 200, headers: headers, body: Data())
             return

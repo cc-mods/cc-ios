@@ -168,23 +168,130 @@ public enum Bootstrap {
       };
       cb.lstat = cb.stat;
 
+      // --- Synchronous reads via the ccgame:// scheme -------------------------------
+      // The native fs bridge is async-only, so readFileSync etc. can't go through it. But
+      // the scheme handler also *serves* the bundle + Documents/mods overlay over
+      // ccgame://, and XMLHttpRequest supports synchronous mode — and the handler responds
+      // synchronously, exactly as the game's own asset loads do. So back the sync reads with
+      // a blocking XHR against ccgame://game/<path>. (Sync *writes* still aren't possible.)
+      function ccURL(p) {
+        p = String(p);
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p)) return p;   // already absolute URL
+        p = p.replace(/^\.?\//, "");                         // strip leading "./" or "/"
+        return "ccgame://game/" + p;
+      }
+      function syncGet(p) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", ccURL(p), false);                    // false = synchronous
+        try { xhr.overrideMimeType("text/plain; charset=x-user-defined"); } catch (e) {}
+        xhr.send(null);
+        return xhr;
+      }
+      function enoent(p) { var e = new Error("ENOENT: no such file or directory, '" + p + "'"); e.code = "ENOENT"; return e; }
+      function binStringToBytes(s) {
+        var out = new Uint8Array(s.length);
+        for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+        return out;
+      }
+
       var fsShim = {
         promises: promises,
         appendFile: cb.appendFile, truncate: cb.truncate, writeFile: cb.writeFile,
         readFile: cb.readFile, mkdir: cb.mkdir, readdir: cb.readdir, stat: cb.stat,
         lstat: cb.lstat, unlink: cb.unlink, realpath: cb.realpath, exists: cb.exists,
         constants: { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 },
-        existsSync: function () { return false; }
+
+        // Synchronous reads (backed by sync XHR against ccgame://).
+        existsSync: function (p) {
+          try { var x = syncGet(p); return x.status !== 404 && x.status !== 0; } catch (e) { return false; }
+        },
+        readFileSync: function (p, opts) {
+          var x = syncGet(p);
+          if (x.status === 404 || x.status === 0) throw enoent(p);
+          var enc = (typeof opts === "string") ? opts : (opts && opts.encoding);
+          var bytes = binStringToBytes(x.responseText || "");
+          return enc ? new TextDecoder().decode(bytes) : bytes;
+        },
+        statSync: function (p) {
+          var x = syncGet(p);
+          if (x.status === 404 || x.status === 0) throw enoent(p);
+          var isDir = x.getResponseHeader("X-CC-Dir") === "1";
+          var size = (x.responseText || "").length;
+          return { size: size, isDirectory: function () { return isDir; },
+                   isFile: function () { return !isDir; }, isSymbolicLink: function () { return false; },
+                   mtimeMs: 0 };
+        },
+        realpathSync: function (p) { return String(p); },
+        // Sync directory listing can't be served over a single XHR; callers should use the
+        // async readdir (the install path does). Fail clearly rather than lie with [].
+        readdirSync: function (p) {
+          var e = new Error("ENOSYS: readdirSync is not supported on iOS; use async readdir"); e.code = "ENOSYS"; throw e;
+        },
+        // Sync writes have no path through the async bridge — fail clearly.
+        writeFileSync: function () { var e = new Error("ENOSYS: writeFileSync is not supported on iOS; use async writeFile"); e.code = "ENOSYS"; throw e; },
+        mkdirSync: function () { var e = new Error("ENOSYS: mkdirSync is not supported on iOS; use async mkdir"); e.code = "ENOSYS"; throw e; }
       };
+      fsShim.lstatSync = fsShim.statSync;
 
       var pathShim = {
         sep: "/",
-        join: function () { return Array.prototype.join.call(arguments, "/").replace(/\/+/g, "/"); },
-        dirname: function (p) { return String(p).replace(/\/[^/]*$/, "") || "/"; },
-        basename: function (p) { return String(p).replace(/^.*\//, ""); },
-        extname: function (p) { var m = /\.[^./]+$/.exec(String(p)); return m ? m[0] : ""; },
-        resolve: function () { return Array.prototype.join.call(arguments, "/").replace(/\/+/g, "/"); }
+        delimiter: ":",
+        join: function () {
+          var parts = Array.prototype.filter.call(arguments, function (a) { return a != null && a !== ""; });
+          return parts.join("/").replace(/\/+/g, "/");
+        },
+        dirname: function (p) { return String(p).replace(/\/+$/, "").replace(/\/[^/]*$/, "") || (/^\//.test(p) ? "/" : "."); },
+        basename: function (p, ext) {
+          var b = String(p).replace(/\/+$/, "").replace(/^.*\//, "");
+          if (ext && b.slice(-ext.length) === ext) b = b.slice(0, -ext.length);
+          return b;
+        },
+        extname: function (p) { var m = /(?!^)\.[^./]+$/.exec(String(p).replace(/^.*\//, "")); return m ? m[0] : ""; },
+        isAbsolute: function (p) { return /^\//.test(String(p)); },
+        normalize: function (p) {
+          p = String(p);
+          var abs = /^\//.test(p), trail = /\/$/.test(p);
+          var out = [];
+          p.split("/").forEach(function (seg) {
+            if (seg === "" || seg === ".") return;
+            if (seg === "..") { if (out.length && out[out.length - 1] !== "..") out.pop(); else if (!abs) out.push(".."); }
+            else out.push(seg);
+          });
+          var s = out.join("/");
+          if (abs) s = "/" + s;
+          if (trail && s && !/\/$/.test(s)) s += "/";
+          return s || (abs ? "/" : ".");
+        },
+        resolve: function () {
+          var resolved = "";
+          for (var i = arguments.length - 1; i >= 0 && resolved.charAt(0) !== "/"; i--) {
+            var seg = arguments[i];
+            if (seg == null || seg === "") continue;
+            resolved = seg + "/" + resolved;
+          }
+          var abs = /^\//.test(resolved);
+          resolved = pathShim.normalize(resolved);
+          if (abs && resolved.charAt(0) !== "/") resolved = "/" + resolved;
+          return resolved.replace(/\/$/, "") || (abs ? "/" : ".");
+        },
+        relative: function (from, to) {
+          from = pathShim.resolve(from).split("/"); to = pathShim.resolve(to).split("/");
+          var i = 0; while (i < from.length && i < to.length && from[i] === to[i]) i++;
+          var up = []; for (var j = i; j < from.length; j++) if (from[j]) up.push("..");
+          return up.concat(to.slice(i)).join("/");
+        },
+        parse: function (p) {
+          var dir = pathShim.dirname(p), base = pathShim.basename(p), ext = pathShim.extname(p);
+          return { root: /^\//.test(String(p)) ? "/" : "", dir: dir, base: base, ext: ext, name: ext ? base.slice(0, -ext.length) : base };
+        },
+        format: function (o) {
+          o = o || {};
+          var base = o.base || ((o.name || "") + (o.ext || ""));
+          var dir = o.dir || o.root || "";
+          return dir ? (dir.replace(/\/$/, "") + "/" + base) : base;
+        }
       };
+      pathShim.posix = pathShim;
 
       // nw.gui stub: CrossCode only touches this on external-link clicks; route to the
       // native external-link hook (see externalLinkJavaScript), falling back to window.open.
@@ -200,10 +307,146 @@ public enum Bootstrap {
         App: { dataPath: "/", argv: [], clearCache: function () {} }
       };
 
+      // --- events.EventEmitter (pure JS, also used by the http shim below) -------------
+      function EventEmitter() { this._ev = {}; }
+      EventEmitter.prototype.on = function (n, fn) { (this._ev[n] = this._ev[n] || []).push(fn); return this; };
+      EventEmitter.prototype.addListener = EventEmitter.prototype.on;
+      EventEmitter.prototype.once = function (n, fn) {
+        var self = this; function w() { self.removeListener(n, w); fn.apply(this, arguments); }
+        w.__orig = fn; return this.on(n, w);
+      };
+      EventEmitter.prototype.removeListener = function (n, fn) {
+        var a = this._ev[n]; if (!a) return this;
+        this._ev[n] = a.filter(function (f) { return f !== fn && f.__orig !== fn; }); return this;
+      };
+      EventEmitter.prototype.off = EventEmitter.prototype.removeListener;
+      EventEmitter.prototype.removeAllListeners = function (n) { if (n) delete this._ev[n]; else this._ev = {}; return this; };
+      EventEmitter.prototype.emit = function (n) {
+        var a = (this._ev[n] || []).slice(), args = Array.prototype.slice.call(arguments, 1);
+        a.forEach(function (f) { try { f.apply(null, args); } catch (e) {} });
+        return a.length > 0;
+      };
+      EventEmitter.prototype.listeners = function (n) { return (this._ev[n] || []).slice(); };
+      EventEmitter.prototype.setMaxListeners = function () { return this; };
+      var eventsShim = { EventEmitter: EventEmitter };
+
+      // --- util ------------------------------------------------------------------------
+      var utilShim = {
+        inherits: function (ctor, superCtor) {
+          ctor.super_ = superCtor;
+          ctor.prototype = Object.create(superCtor.prototype, { constructor: { value: ctor, enumerable: false, writable: true, configurable: true } });
+        },
+        inspect: function (o) { try { return typeof o === "string" ? o : JSON.stringify(o); } catch (e) { return String(o); } },
+        format: function (f) {
+          var args = Array.prototype.slice.call(arguments, 1), i = 0;
+          if (typeof f !== "string") return [f].concat(args).map(function (a) { return utilShim.inspect(a); }).join(" ");
+          var out = f.replace(/%[sdjifoO%]/g, function (m) {
+            if (m === "%%") return "%";
+            if (i >= args.length) return m;
+            var a = args[i++];
+            if (m === "%d" || m === "%i") return String(parseInt(a, 10));
+            if (m === "%f") return String(parseFloat(a));
+            if (m === "%j") { try { return JSON.stringify(a); } catch (e) { return "[Circular]"; } }
+            if (m === "%s") return String(a);
+            return utilShim.inspect(a);
+          });
+          for (; i < args.length; i++) out += " " + utilShim.inspect(args[i]);
+          return out;
+        },
+        promisify: function (fn) {
+          return function () {
+            var args = Array.prototype.slice.call(arguments), self = this;
+            return new Promise(function (resolve, reject) {
+              args.push(function (err, res) { if (err) reject(err); else resolve(res); });
+              fn.apply(self, args);
+            });
+          };
+        },
+        deprecate: function (fn) { return fn; },
+        isArray: Array.isArray,
+        isFunction: function (v) { return typeof v === "function"; },
+        isObject: function (v) { return v !== null && typeof v === "object"; },
+        isString: function (v) { return typeof v === "string"; },
+        isNumber: function (v) { return typeof v === "number"; },
+        isUndefined: function (v) { return v === undefined; },
+        isNullOrUndefined: function (v) { return v == null; },
+        types: { isDate: function (v) { return v instanceof Date; } },
+        TextEncoder: (typeof TextEncoder !== "undefined") ? TextEncoder : undefined,
+        TextDecoder: (typeof TextDecoder !== "undefined") ? TextDecoder : undefined
+      };
+
+      // --- assert ----------------------------------------------------------------------
+      function AssertionError(msg) { var e = new Error(msg || "assertion failed"); e.name = "AssertionError"; e.code = "ERR_ASSERTION"; return e; }
+      function assertShim(v, msg) { if (!v) throw AssertionError(msg); }
+      assertShim.ok = assertShim;
+      assertShim.equal = function (a, b, m) { if (a != b) throw AssertionError(m || (a + " == " + b)); };
+      assertShim.notEqual = function (a, b, m) { if (a == b) throw AssertionError(m || (a + " != " + b)); };
+      assertShim.strictEqual = function (a, b, m) { if (a !== b) throw AssertionError(m || (a + " === " + b)); };
+      assertShim.notStrictEqual = function (a, b, m) { if (a === b) throw AssertionError(m || (a + " !== " + b)); };
+      assertShim.deepEqual = function (a, b, m) { try { assertShim.strictEqual(JSON.stringify(a), JSON.stringify(b), m); } catch (e) { throw AssertionError(m); } };
+      assertShim.deepStrictEqual = assertShim.deepEqual;
+      assertShim.fail = function (m) { throw AssertionError(m || "failed"); };
+      assertShim.throws = function (fn, m) { var t = false; try { fn(); } catch (e) { t = true; } if (!t) throw AssertionError(m || "missing expected exception"); };
+      assertShim.AssertionError = AssertionError;
+
+      // --- http / https → fetch --------------------------------------------------------
+      // Node's http(s).get/request, mapped onto fetch with a minimal EventEmitter response
+      // (.on("data"|"end"|"error")). Covers the common "fetch a URL and read the body" case;
+      // streaming/keep-alive/sockets are not emulated.
+      function makeHttp(defaultProto) {
+        function request(opts, cb) {
+          var url, method = "GET", headers = {};
+          if (typeof opts === "string") { url = opts; }
+          else if (opts && opts.url) { url = opts.url; method = opts.method || method; headers = opts.headers || {}; }
+          else if (opts) {
+            var proto = opts.protocol || (defaultProto + ":");
+            var host = opts.hostname || opts.host || "";
+            var port = opts.port ? (":" + opts.port) : "";
+            url = proto + "//" + host + port + (opts.path || "/");
+            method = opts.method || method; headers = opts.headers || {};
+          }
+          var res = new EventEmitter();
+          res.statusCode = 0; res.headers = {};
+          var req = new EventEmitter();
+          req.end = function () {
+            fetch(url, { method: method, headers: headers }).then(function (r) {
+              res.statusCode = r.status;
+              try { r.headers.forEach(function (v, k) { res.headers[k] = v; }); } catch (e) {}
+              if (cb) cb(res);
+              return r.text().then(function (body) { res.emit("data", body); res.emit("end"); });
+            }).catch(function (err) { req.emit("error", err); res.emit("error", err); });
+            return req;
+          };
+          req.write = function () { return true; };
+          req.abort = function () {};
+          req.setTimeout = function () { return req; };
+          req.on("__noop__", function () {});
+          // http.get auto-ends the request.
+          return req;
+        }
+        return {
+          request: request,
+          get: function (opts, cb) { var r = request(opts, cb); r.end(); return r; }
+        };
+      }
+      var httpShim = makeHttp("http");
+      var httpsShim = makeHttp("https");
+
+      var MODULES = {
+        fs: fsShim, path: pathShim, "nw.gui": nwGuiShim,
+        events: eventsShim, util: utilShim, assert: assertShim,
+        http: httpShim, https: httpsShim, os: {
+          platform: function () { return "ios"; }, EOL: "\n", homedir: function () { return "/"; },
+          tmpdir: function () { return "/tmp"; }, hostname: function () { return "ios"; }
+        }
+      };
+
       window.require = function (m) {
-        if (m === "fs") return fsShim;
-        if (m === "path") return pathShim;
-        if (m === "nw.gui") return nwGuiShim;
+        m = String(m);
+        if (Object.prototype.hasOwnProperty.call(MODULES, m)) return MODULES[m];
+        // Unknown module: return a benign empty object (so a top-level `require` doesn't crash
+        // a mod that only conditionally uses it) but warn so the gap is debuggable.
+        try { console.warn("[cc require] unshimmed module '" + m + "' → {} (some features may not work)"); } catch (e) {}
         return {};
       };
     })();
