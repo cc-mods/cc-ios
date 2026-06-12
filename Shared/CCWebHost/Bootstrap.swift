@@ -450,6 +450,7 @@ public enum Bootstrap {
       window.__ccFpsInstalled = true;
 
       var el = null, frames = 0, last = (performance && performance.now) ? performance.now() : Date.now(), fps = 0;
+      var rafId = null;
 
       function hasGameCanvas() {
         try { return !!document.querySelector("#canvas, canvas"); } catch (e) { return false; }
@@ -478,20 +479,39 @@ public enum Bootstrap {
       }
 
       function frame(now) {
-        frames++;
-        var dt = now - last;
-        if (dt >= 500) {
-          fps = Math.round((frames * 1000) / dt);
-          frames = 0; last = now;
-          var e = ensureEl();
-          if (e) {
-            e.textContent = fps + " FPS";
-            e.style.color = fps >= 55 ? "#7CFC8A" : (fps >= 30 ? "#FFD24A" : "#FF6B6B");
+        // Never let an exception kill the loop's tail call below.
+        try {
+          frames++;
+          var dt = now - last;
+          if (dt >= 500) {
+            fps = Math.round((frames * 1000) / dt);
+            frames = 0; last = now;
+            var e = ensureEl();
+            if (e) {
+              e.textContent = fps + " FPS";
+              e.style.color = fps >= 55 ? "#7CFC8A" : (fps >= 30 ? "#FFD24A" : "#FF6B6B");
+            }
           }
-        }
-        requestAnimationFrame(frame);
+        } catch (e2) {}
+        rafId = requestAnimationFrame(frame);
       }
-      requestAnimationFrame(frame);
+
+      // iOS can drop the single in-flight requestAnimationFrame callback when the WebContent
+      // process is suspended on backgrounding, permanently stalling this loop (the overlay
+      // "disappears" until relaunch). Re-arm on return-to-foreground: cancel any stale pending
+      // frame and start exactly one fresh loop, so we never double-count.
+      function kick() {
+        if (rafId !== null) { try { cancelAnimationFrame(rafId); } catch (e) {} }
+        last = (performance && performance.now) ? performance.now() : Date.now();
+        frames = 0;
+        rafId = requestAnimationFrame(frame);
+      }
+      window.addEventListener("focus", kick, false);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) kick();
+      }, false);
+
+      kick();
     })();
     """#
 
