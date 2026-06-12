@@ -164,6 +164,14 @@ The entire save is one `localStorage` blob under key `cc.save`, **byte-identical
 Sync tooling mirrors `Documents/cc.save`; sync is optional and must stay fail-safe (no config or
 unreachable server → silent no-op, never blocks boot).
 
+- **USB:** `tools/save-sync.sh` (newest-wins via `devicectl`).
+- **Wireless (Tailscale):** `tools/setup-sync.sh` detects the Mac's Tailscale IP, writes
+  `cc-sync.json` (gitignored — **never** hard-code an IP in source), and pushes it to the device.
+  `tools/save-server.sh install` runs `save-server.py` as a launchd service (survives reboots).
+  `SaveSyncClient` is **bidirectional**: it pushes on every save but **pulls only at launch**
+  (mtime newest-wins, sha256 short-circuit to avoid echo loops). The server keeps one `.backup`
+  and writes atomically.
+
 ### Controller
 CrossCode polls `navigator.getGamepads()` every frame using the **W3C Standard Gamepad** mapping
 (FACE0-3 = buttons 0-3, shoulders 4-5, triggers 6-7, SELECT 8, START 9, sticks 10-11, D-pad 12-15;

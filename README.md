@@ -182,6 +182,8 @@ cc-ios/
     ├── setup-ccloader.sh         Overlay CCLoader + mods, regenerate mods.json
     ├── webkit-harness/           macOS WKWebView proof harness (SwiftPM executable)
     ├── save-sync.sh              USB save sync (xcrun devicectl)
+    ├── setup-sync.sh             Configure wireless sync: write + push cc-sync.json
+    ├── save-server.sh            Run the wireless save hub as a persistent launchd service
     └── save-server.py            Optional wireless save hub (Tailscale)
 ```
 
@@ -435,16 +437,35 @@ Because the blob is interchangeable, you can move a save between your PC and iPh
   tools/save-sync.sh --to-phone   # force desktop → phone
   tools/save-sync.sh --from-phone # force phone → desktop
   ```
-- **Wireless (Tailscale)** — run `tools/save-server.py` on your PC (it mirrors the desktop
-  `cc.save`), then drop a `Documents/cc-sync.json` on the phone pointing at it. The in-app
-  `SaveSyncClient` pulls a newer save at launch and pushes on change. It is **fully fail-safe**:
-  no config or unreachable server → silent no-op, never blocks the game.
+- **Wireless (Tailscale)** — one command sets it up end-to-end:
+  ```bash
+  tools/setup-sync.sh                    # detect this Mac's Tailscale IP,
+                                         # write cc-sync.json, push it to the phone
+  tools/setup-sync.sh --install-service  # …and run the save hub persistently (launchd)
+  ```
+  Under the hood `setup-sync.sh` detects your Tailscale IPv4 (override with `--ip`/`--url`),
+  writes a `cc-sync.json`, and copies it into the app container via `xcrun devicectl` — no
+  hand-edited JSON or hard-coded IPs. The save hub (`tools/save-server.py`) mirrors the desktop
+  `cc.save`; run it in the foreground, or install it as a launchd service so it survives reboots:
+  ```bash
+  tools/save-server.sh install     # load now + at every login (KeepAlive)
+  tools/save-server.sh status      # is it running?
+  tools/save-server.sh uninstall   # stop + remove
+  ```
+  Sync is **bidirectional**: the app pushes on every in-game save and pulls a newer remote save
+  at launch, resolving by mtime with a content-hash short-circuit (newest side wins, no echo
+  loops). It is **fully fail-safe** — no config or unreachable server → silent no-op, never blocks
+  the game. The config is just:
   ```json
   { "url": "http://100.x.y.z:8765", "token": "optional-bearer" }
   ```
+  Add a shared secret with `tools/setup-sync.sh --token SECRET` (sets it on both the phone config
+  and, with `--install-service`, the server) to require `Authorization: Bearer`.
 
 Notes:
 
+- **Pull is launch-only; push is live.** iOS pushes every in-game save immediately, but only
+  *pulls* PC changes at app launch — relaunch the app to pick up a PC session in progress.
 - **PC ↔ PC** is automatic via **Steam Cloud** (`platformstosync2 = -1`); the sync above bridges iOS
   into that same save.
 - **iOS can't join Steam Cloud** directly (no Steam client) — hence the USB / Tailscale paths.

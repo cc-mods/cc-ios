@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Manage the cc-ios save-server as a persistent macOS launchd service, so wireless
+# (Tailscale) save sync keeps working across logins/reboots without a terminal open.
+#
+# Wraps tools/save-server.py. The service mirrors the desktop CrossCode save and serves
+# it on 0.0.0.0:<port>, reachable over your tailnet.
+#
+# Usage:
+#   tools/save-server.sh install [--port N] [--save PATH]   # install + load (starts now)
+#   tools/save-server.sh uninstall                          # stop + remove
+#   tools/save-server.sh status                             # is it loaded/running?
+#   tools/save-server.sh logs                               # tail the service log
+#
+# Auth: set CCIOS_SYNC_TOKEN in the environment when installing to require a bearer token.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+label="com.ccios.save-server"
+plist="$HOME/Library/LaunchAgents/${label}.plist"
+log_dir="$HOME/.cc-ios"
+log_out="$log_dir/save-server.out.log"
+log_err="$log_dir/save-server.err.log"
+
+port=8765
+save_path=""
+cmd="${1:-}"; shift || true
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port) port="$2"; shift 2;;
+    --save) save_path="$2"; shift 2;;
+    *) echo "unknown arg: $1" >&2; exit 2;;
+  esac
+done
+
+python_bin="$(command -v python3 || echo /usr/bin/python3)"
+server_py="$repo_root/tools/save-server.py"
+token="${CCIOS_SYNC_TOKEN:-}"
+
+install() {
+  [[ -f "$server_py" ]] || { echo "error: $server_py not found" >&2; exit 1; }
+  mkdir -p "$log_dir" "$(dirname "$plist")"
+
+  # Build the ProgramArguments + optional --save.
+  local args="    <string>${server_py}</string>
+    <string>--port</string>
+    <string>${port}</string>"
+  if [[ -n "$save_path" ]]; then
+    args="${args}
+    <string>--save</string>
+    <string>${save_path}</string>"
+  fi
+
+  # Optional token via EnvironmentVariables.
+  local env_block=""
+  if [[ -n "$token" ]]; then
+    env_block="  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CCIOS_SYNC_TOKEN</key>
+    <string>${token}</string>
+  </dict>"
+  fi
+
+  cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${label}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${python_bin}</string>
+${args}
+  </array>
+${env_block}
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${log_out}</string>
+  <key>StandardErrorPath</key>
+  <string>${log_err}</string>
+</dict>
+</plist>
+PLIST
+
+  # Reload cleanly if already installed.
+  launchctl unload "$plist" 2>/dev/null || true
+  launchctl load "$plist"
+  echo "Installed and loaded $label (port $port)."
+  echo "  plist: $plist"
+  echo "  logs:  $log_out / $log_err"
+}
+
+uninstall() {
+  launchctl unload "$plist" 2>/dev/null || true
+  rm -f "$plist"
+  echo "Uninstalled $label."
+}
+
+status() {
+  if launchctl list 2>/dev/null | grep -q "$label"; then
+    echo "loaded:"
+    launchctl list | grep "$label"
+  else
+    echo "not loaded."
+  fi
+}
+
+case "$cmd" in
+  install)   install;;
+  uninstall) uninstall;;
+  status)    status;;
+  logs)      tail -n 40 -f "$log_out" "$log_err" 2>/dev/null;;
+  *) grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 2;;
+esac

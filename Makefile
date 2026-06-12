@@ -4,6 +4,7 @@
 #   make doctor    check the build environment
 #   make sim       build + run in the iOS Simulator
 #   make device    build + sign + install on a connected iPhone
+#   make sync      set up wireless (Tailscale) save sync: write + push cc-sync.json
 #   make mods      install CCLoader + the in-game mod manager + title buttons
 #   make harness   boot the game in a macOS WKWebView (writes proof.png)
 #   make assets    (re)copy your CrossCode assets + transcode audio
@@ -16,7 +17,7 @@
 
 ARGS ?=
 
-.PHONY: setup doctor sim device mods harness assets project clean help
+.PHONY: setup doctor sim device sync mods harness assets project clean help
 
 help:
 	@grep '^#' Makefile | sed 's/^#//; s/^ //'
@@ -32,6 +33,9 @@ sim:
 
 device:
 	tools/ios-build.sh $(ARGS)
+
+sync:
+	tools/setup-sync.sh $(ARGS)
 
 mods:
 	tools/setup-ccloader.sh $(ARGS)
