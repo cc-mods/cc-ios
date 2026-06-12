@@ -520,21 +520,51 @@ public enum Bootstrap {
       if (window.__ccAudioUnlockInstalled) return;
       window.__ccAudioUnlockInstalled = true;
 
-      function resumeGameContext() {
+      function gameCtx() {
         try {
           var wrap = window.ig && ig.soundManager && ig.soundManager.context;
-          var ctx = wrap && wrap.context;
-          if (ctx && ctx.state === "suspended" && ctx.resume) { ctx.resume(); }
-        } catch (e) {}
+          return (wrap && wrap.context) || null;
+        } catch (e) { return null; }
       }
+
+      // iOS uses a non-standard "interrupted" AudioContext state after the app is
+      // backgrounded (the WebContent process's audio session is interrupted). Returning to
+      // the foreground often leaves it "interrupted"/"suspended" with nothing resuming it —
+      // which is why audio stayed dead until a full relaunch. Treat anything not "running"
+      // as resumable (the old code only handled "suspended").
+      function resumeNow() {
+        var ctx = gameCtx();
+        if (ctx && ctx.state !== "running" && ctx.resume) {
+          try { ctx.resume(); } catch (e) {}
+        }
+      }
+
+      // After returning from background the audio session needs a moment to reactivate
+      // before resume() takes effect, so nudge it a few times until it's running. Logs the
+      // observed state transition once (visible as [cc JS:LOG]) since this path can't be
+      // reproduced off-device.
+      function resumeWithRetries() {
+        var startState = (gameCtx() || {}).state;
+        resumeNow();
+        var tries = 0;
+        var id = setInterval(function () {
+          resumeNow();
+          var ctx = gameCtx();
+          if (++tries >= 15 || (ctx && ctx.state === "running")) {
+            clearInterval(id);
+            try { console.log("[ccaudio] resume " + startState + " -> " + ((gameCtx() || {}).state)); } catch (e) {}
+          }
+        }, 200);
+      }
+      window.__ccResumeAudio = resumeWithRetries;
 
       var GESTURES = ["touchend", "touchstart", "pointerup", "pointerdown", "mousedown", "keydown", "click"];
       for (var g = 0; g < GESTURES.length; g++) {
-        document.addEventListener(GESTURES[g], resumeGameContext, true);
+        document.addEventListener(GESTURES[g], resumeNow, true);
       }
-      window.addEventListener("focus", resumeGameContext, false);
+      window.addEventListener("focus", resumeWithRetries, false);
       document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) resumeGameContext();
+        if (!document.hidden) resumeWithRetries();
       }, false);
     })();
     """#

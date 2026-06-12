@@ -141,11 +141,7 @@ struct GameView: UIViewRepresentable {
             (function(){
               try { window.dispatchEvent(new Event(\"\(name)\")); } catch (e) {}
               try {
-                if (\"\(name)\" === "focus") {
-                  var wrap = window.ig && ig.soundManager && ig.soundManager.context;
-                  var ctx = wrap && wrap.context;
-                  if (ctx && ctx.state === "suspended" && ctx.resume) { ctx.resume(); }
-                }
+                if (\"\(name)\" === "focus" && window.__ccResumeAudio) { window.__ccResumeAudio(); }
               } catch (e) {}
             })();
             """
