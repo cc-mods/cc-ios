@@ -12,6 +12,10 @@
 #   tools/save-server.sh logs                               # tail the service log
 #
 # Auth: set CCIOS_SYNC_TOKEN in the environment when installing to require a bearer token.
+#
+# Note: `install` copies save-server.py into ~/.cc-ios and runs that copy — both so the
+# service is independent of the repo path and to avoid macOS TCC denying launchd access to
+# files under ~/Documents/~/Desktop/~/Downloads. Re-run `install` after editing the script.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,8 +44,15 @@ install() {
   [[ -f "$server_py" ]] || { echo "error: $server_py not found" >&2; exit 1; }
   mkdir -p "$log_dir" "$(dirname "$plist")"
 
+  # launchd agents are subject to macOS TCC and are DENIED read access to files under
+  # ~/Documents, ~/Desktop and ~/Downloads. If the repo lives in one of those (common!),
+  # launchd can't read save-server.py from the worktree ("Operation not permitted").
+  # So install a copy into ~/.cc-ios (a dotfolder, not TCC-protected) and run that.
+  local installed_py="$log_dir/save-server.py"
+  cp "$server_py" "$installed_py"
+
   # Build the ProgramArguments + optional --save.
-  local args="    <string>${server_py}</string>
+  local args="    <string>${installed_py}</string>
     <string>--port</string>
     <string>${port}</string>"
   if [[ -n "$save_path" ]]; then
@@ -85,18 +96,25 @@ ${env_block}
 </plist>
 PLIST
 
-  # Reload cleanly if already installed.
+  # Reload cleanly if already installed, then wait for the old process to release the
+  # port so the fresh instance doesn't fail to bind (Address already in use).
   launchctl unload "$plist" 2>/dev/null || true
+  local i=0
+  while lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && [[ "$i" -lt 20 ]]; do
+    sleep 0.25; i=$((i+1))
+  done
   launchctl load "$plist"
   echo "Installed and loaded $label (port $port)."
-  echo "  plist: $plist"
-  echo "  logs:  $log_out / $log_err"
+  echo "  script: $installed_py  (copied from $server_py)"
+  echo "  plist:  $plist"
+  echo "  logs:   $log_out / $log_err"
 }
 
 uninstall() {
   launchctl unload "$plist" 2>/dev/null || true
-  rm -f "$plist"
+  rm -f "$plist" "$log_dir/save-server.py"
   echo "Uninstalled $label."
+  echo "  (logs kept in $log_dir; remove them with: rm -rf $log_dir)"
 }
 
 status() {

@@ -177,6 +177,12 @@ unreachable server → silent no-op, never blocks boot).
   `SaveSyncClient` is **bidirectional**: it pushes on every save but **pulls only at launch**
   (mtime newest-wins, sha256 short-circuit to avoid echo loops). The server keeps one `.backup`
   and writes atomically.
+  - **launchd + TCC gotcha:** launchd agents are denied read access to `~/Documents`, `~/Desktop`,
+    and `~/Downloads` (macOS TCC), so a service can't run `save-server.py` straight from a clone in
+    one of those folders (`Operation not permitted`, even though an interactive shell can). So
+    `save-server.sh install` **copies the script to `~/.cc-ios/`** (a dotfolder, not TCC-protected)
+    and points the plist there — re-run `install` after editing the script. The desktop save lives
+    under `~/Library` (not TCC-protected), so reading/writing it from the service is fine.
 
 ### Controller
 CrossCode polls `navigator.getGamepads()` every frame using the **W3C Standard Gamepad** mapping
