@@ -129,7 +129,7 @@ git-ignored and only copied locally at build time. This wrapper's **own source c
 licensed (see [`LICENSE`](LICENSE)); CrossCode, CCLoader, CCModManager, and CrossAndroid belong to
 their respective owners.
 
-## Hacking & contributing
+## Contributing
 
 Start with **[`AGENTS.md`](AGENTS.md)** — it documents the architecture, the non-obvious runtime
 invariants that keep CrossCode booting (browser-mode detection, the iOS audio fix, CCLoader/mods,
