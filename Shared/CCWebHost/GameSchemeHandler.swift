@@ -124,6 +124,16 @@ public final class GameSchemeHandler: NSObject, WKURLSchemeHandler {
             data = Self.patchAudioFormatPreference(in: data, log: log)
         }
 
+        // iOS audio fix: route background music through Web Audio. The entry HTML hard-sets
+        // `var IG_WEB_AUDIO_BGM = false`, which makes BGM use HTML5 <audio> (ig.TrackDefault).
+        // That path bypasses the Web Audio `volumes.music` gain node, so the in-game music
+        // volume slider has no effect (and HTML5 audio is flaky on iOS). Flip it to true so
+        // BGM uses ig.TrackWebAudio and both volume sliders work. Applies to whichever entry
+        // document declares the flag (node-webkit.html, or an index.html variant).
+        if preferM4AAudio, fileURL.pathExtension == "html" {
+            data = Self.patchWebAudioBGM(in: data, log: log)
+        }
+
         let mime = Self.mimeType(forExtension: fileURL.pathExtension)
 
         // Honour HTTP Range for media (HTML5 <audio>/<video> seek with byte ranges).
@@ -301,6 +311,25 @@ public final class GameSchemeHandler: NSObject, WKURLSchemeHandler {
             return data
         }
         log("audio-patch: M4A audio (\(applied.joined(separator: "+")))")
+        return Data(text.utf8)
+    }
+
+    /// Rewrites the entry HTML's `IG_WEB_AUDIO_BGM` flag from `false` to `true`.
+    ///
+    /// CrossCode's entry document declares `var IG_WEB_AUDIO_BGM = false;`, which makes the
+    /// engine play background music through HTML5 `<audio>` (`ig.TrackDefault`). That path
+    /// does not connect to the Web Audio `volumes.music` gain node, so `setMusicVolume`
+    /// (driven by the in-game music slider) has no audible effect — and HTML5 audio is
+    /// unreliable on iOS. Flipping the flag to `true` switches BGM to `ig.TrackWebAudio`,
+    /// so music shares the same Web Audio graph as SFX and both volume sliders work. M4A
+    /// music decodes natively on iOS, same as the (already Web Audio) sound effects.
+    static func patchWebAudioBGM(in data: Data, log: (String) -> Void) -> Data {
+        guard var text = String(data: data, encoding: .utf8) else { return data }
+        let original = "var IG_WEB_AUDIO_BGM = false;"
+        let patched = "var IG_WEB_AUDIO_BGM = true;"
+        guard text.contains(original) else { return data }
+        text = text.replacingOccurrences(of: original, with: patched)
+        log("audio-patch: web-audio BGM enabled")
         return Data(text.utf8)
     }
 
