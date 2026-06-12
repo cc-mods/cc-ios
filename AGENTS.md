@@ -44,6 +44,7 @@ It is **sideload-only** and **brings-your-own-assets**. See `README.md` for the 
 ## Setup & common commands
 
 ```bash
+make tui         # interactive, verifiable setup (live status board; --check = read-only)
 make doctor     # check the toolchain (Xcode, SDKs, xcodegen, ffmpeg, …); --fix installs brew tools
 make setup      # one-shot onboarding: preflight → find game → sync+transcode assets → project
 make sim        # build + run in the iOS Simulator (no signing)
@@ -51,6 +52,11 @@ make device     # build + sign + install on a connected iPhone
 make harness    # boot the game in a macOS WKWebView (writes proof.png)
 make help       # list all targets
 ```
+
+`tools/setup-tui.sh` is a thin, interactive **front-end** over the same scripts `setup.sh` drives
+(preflight, find-crosscode, sync-assets, setup-ccloader, xcodegen, setup-sync, save-server) — it
+adds a status board and post-step verification but **must never reimplement** their logic. Keep
+`setup.sh` as the headless/CI path.
 
 Lower-level equivalents live in `tools/` (each script self-documents with `-h`). The macOS
 harness is a SwiftPM target:

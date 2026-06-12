@@ -1,5 +1,6 @@
 # cc-ios — convenience wrappers around tools/*.sh
 #
+#   make tui       interactive, verifiable setup (live status board)
 #   make setup     one-shot onboarding (preflight → assets → project)
 #   make doctor    check the build environment
 #   make sim       build + run in the iOS Simulator
@@ -17,10 +18,13 @@
 
 ARGS ?=
 
-.PHONY: setup doctor sim device sync mods harness assets project clean help
+.PHONY: tui setup doctor sim device sync mods harness assets project clean help
 
 help:
 	@grep '^#' Makefile | sed 's/^#//; s/^ //'
+
+tui:
+	tools/setup-tui.sh $(ARGS)
 
 setup:
 	tools/setup.sh $(ARGS)

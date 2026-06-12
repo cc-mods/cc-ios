@@ -173,6 +173,7 @@ cc-ios/
 ├── mods/
 │   └── ccios-title-buttons/      CCLoader mod: native Restart/Close buttons on the title screen
 └── tools/
+    ├── setup-tui.sh              Interactive, verifiable setup (live status board)
     ├── setup.sh                  One-shot onboarding: preflight → assets → mods → project
     ├── preflight.sh              Environment doctor (--fix auto-installs brew tools)
     ├── find-crosscode.sh         Auto-detect your CrossCode install (Steam/GOG/itch)
@@ -201,9 +202,21 @@ copyrighted or personal is committed.
 
 ```bash
 git clone https://github.com/Yoyokrazy/cc-ios.git && cd cc-ios
-make setup        # preflight → find CrossCode → copy+transcode assets → generate project
+make tui          # guided, verifiable setup — a live status board walks you through it
 make sim          # build + run in the iOS Simulator (no signing needed)
 ```
+
+Prefer plain scripted output (or CI)? `make setup` does the same pipeline without the UI:
+
+```bash
+make setup        # preflight → find CrossCode → copy+transcode assets → generate project
+```
+
+`make tui` (a.k.a. `tools/setup-tui.sh`) probes your current state up front so every stage shows a
+real ✓/✗, runs only what's missing, and verifies each step after it runs (tool versions, the
+transcoded-audio count, the `.xcodeproj`, a reachable save-server). Run `tools/setup-tui.sh --check`
+for a read-only status snapshot. On a non-interactive terminal it degrades to plain text. Under the
+hood it drives the very same scripts as `make setup` — see below.
 
 That's it for the Simulator. Prefer a single command? This does everything (clone aside) and
 launches the Simulator at the end, no prompts:
@@ -212,7 +225,7 @@ launches the Simulator at the end, no prompts:
 make setup ARGS="--yes --with-mods --fix --sim"
 ```
 
-`make setup` (a.k.a. `tools/setup.sh`) is interactive by default and:
+`make setup` (a.k.a. `tools/setup.sh`) is the scriptable equivalent and:
 
 1. runs **preflight** and can auto-install the Homebrew tools (`make setup ARGS="--fix"`);
 2. **auto-detects your CrossCode install** (Steam — including extra library folders — GOG, itch,
