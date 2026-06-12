@@ -554,20 +554,14 @@ public enum Bootstrap {
       }
 
       // After returning from background the audio session needs a moment to reactivate
-      // before resume() takes effect, so nudge it a few times until it's running. Logs the
-      // observed state transition once (visible as [cc JS:LOG]) since this path can't be
-      // reproduced off-device.
+      // before resume() takes effect, so nudge it a few times until it's running.
       function resumeWithRetries() {
-        var startState = (gameCtx() || {}).state;
         resumeNow();
         var tries = 0;
         var id = setInterval(function () {
           resumeNow();
           var ctx = gameCtx();
-          if (++tries >= 15 || (ctx && ctx.state === "running")) {
-            clearInterval(id);
-            try { console.log("[ccaudio] resume " + startState + " -> " + ((gameCtx() || {}).state)); } catch (e) {}
-          }
+          if (++tries >= 15 || (ctx && ctx.state === "running")) clearInterval(id);
         }, 200);
       }
       window.__ccResumeAudio = resumeWithRetries;
