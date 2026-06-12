@@ -190,6 +190,29 @@ CrossCode polls `navigator.getGamepads()` every frame using the **W3C Standard G
 axes 0-3). The native bridge feeds `window.__ccpad`. **GameController's y-axis is inverted vs W3C**
 — correct it in the bridge.
 
+### UI overlays & external links (iOS WebView quirks)
+- **You cannot draw an HTML overlay over the game on iOS.** The game renders into a
+  hardware-accelerated **WebGL canvas**, and iOS WebKit composites that canvas **above all in-page
+  DOM regardless of `z-index`** — even with `translateZ(0)`/`will-change` layer promotion. We chased
+  this hard with the FPS counter: device logs proved the DOM element was present, `visible`, top-left,
+  `z-index:2147483647`, updating at 60fps — yet it never painted in-game (it showed only during
+  loading, before the canvas took over). **Fix: draw overlays natively.** The injected JS only
+  *measures* and posts data (`{type:"fps"}`); `GameView` renders a `UILabel` **added as a subview of
+  the `WKWebView`**, which always paints above web content. JS also reports the canvas's left edge
+  (`{type:"fpslayout", leftFrac}`) so the label can sit in the black **letterbox** bar just outside
+  the canvas. Position from the *canvas geometry*, **not** `safeAreaInsets.left` — that inset is
+  inflated by the Dynamic Island (vertically centered on the long edge), which would shove a
+  top-corner label into the game; use a small fixed corner allowance instead.
+- **External links need a native path, not `window.open`.** CCModManager's "visit repository/author"
+  calls `window.open(url,"_blank")` in browser mode. In a `WKWebView` that needs both a `WKUIDelegate`
+  **and** a real user gesture — but the gamepad d-pad "visit" is driven through the native gamepad
+  bridge (`evaluateJavaScript`), which is **not** a WebKit user gesture, so the popup is silently
+  suppressed and `createWebViewWith` never fires. **Fix:** override `window.open` at documentStart
+  (all frames) to post http(s) URLs to the `cccontrol` handler, which opens them via
+  `UIApplication.open`. (A `WKUIDelegate`/`decidePolicyFor` fallback is wired too, but the gesture-free
+  `window.open` override is what actually fixes the d-pad case.) A mod is "visitable" in the in-game
+  list only if its `ccmod.json` has a `repository` (or `homepage`) field.
+
 ### CCLoader & mods
 - Entry is `ccloader/index.html`; the game must live under `assets/`.
 - Browser mode can't enumerate folders, so mods are listed in a static `mods.json` (the scheme
