@@ -4,6 +4,15 @@
 invariants that keep CrossCode booting, the harness-first workflow, and environment gotchas. This
 file is just the short version of the must-not-break rules.
 
+📓 **Also read the suite knowledge base:**
+**[`cc-mods/knowledge`](https://github.com/cc-mods/knowledge)** (private; org members only) — cross-
+suite findings. Most relevant:
+[`cc-ios.md`](https://github.com/cc-mods/knowledge/blob/main/cc-ios.md) (the runtime invariants +
+the `SaveSyncProvider` seam to cc-tailsync),
+[`crosscode-modding.md`](https://github.com/cc-mods/knowledge/blob/main/crosscode-modding.md), and
+[`suite-architecture.md`](https://github.com/cc-mods/knowledge/blob/main/suite-architecture.md).
+**When you learn something durable, add it to `cc-mods/knowledge`** (and keep `AGENTS.md` in sync).
+
 ## Always
 
 - **Never commit game assets** (copyrighted). `app/Resources/game/` and `*.ccmod` are git-ignored —
