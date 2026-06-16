@@ -181,7 +181,7 @@ print("  mods.json:", names)
 PY
 
 # --- 6. Pre-register the cc-mods mod database in CCModManager (best-effort) --------------
-# So the cc-mods suite (cc-ultrawide, cc-aimassist, cc-iostitlebuttons) shows up ONE-CLICK in
+# So the cc-mods suite (cc-ultrawide, cc-aimassist, cc-iosux) shows up ONE-CLICK in
 # the in-game Mods tab. We insert "@cc-mods/CCModDB/stable" next to CCModManager's default
 # CCDirectLink repo in its plugin. Non-fatal + idempotent: if CCModManager isn't present (the
 # anchor URL won't be found) we just print a hint and continue.

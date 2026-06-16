@@ -154,6 +154,14 @@ struct GameView: UIViewRepresentable {
                              : UIColor(red: 1, green: 0.42, blue: 0.42, alpha: 1))
         }
 
+        /// Shows or hides the native FPS label (called from the `fpsenabled` script message).
+        /// The counter is user-toggleable from the in-game mod manager (cc-iosux → CCModManager
+        /// "Mod settings"); the JS overlay reads that setting and tells us when it flips so we
+        /// can hide the label rather than leaving a stale number on screen.
+        private func setFPSVisible(_ visible: Bool) {
+            fpsLabel?.isHidden = !visible
+        }
+
         /// Connects the web view and registers for lifecycle + audio-interruption events.
         /// CrossCode pauses on a `blur` event and resumes on `focus`, so we forward the
         /// app's background/foreground transitions (and audio interruptions) to those.
@@ -218,6 +226,8 @@ struct GameView: UIViewRepresentable {
             switch type {
             case "fps":
                 if let n = (dict["value"] as? NSNumber)?.intValue { updateFPS(n) }
+            case "fpsenabled":
+                if let on = (dict["value"] as? NSNumber)?.boolValue { setFPSVisible(on) }
             case "fpslayout":
                 if let f = (dict["leftFrac"] as? NSNumber)?.doubleValue { updateFPSLayout(leftFrac: f) }
             case "error": NSLog("[cc JSERR] %@", msg)

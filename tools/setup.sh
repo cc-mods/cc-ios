@@ -129,7 +129,7 @@ esac
 if [[ "$want_mods" -eq 1 ]]; then
   tools/setup-ccloader.sh || die "CCLoader setup failed."
   echo "Installed CCLoader + CCModManager (pre-registered the cc-mods database)."
-  echo "Once booted, install cc-mods (cc-ultrawide, cc-aimassist, cc-iostitlebuttons)"
+  echo "Once booted, install cc-mods (cc-ultrawide, cc-aimassist, cc-iosux)"
   echo "one-click from the in-game Mods tab."
 fi
 

@@ -96,8 +96,8 @@ public enum GameWebHost {
             controller.add(saveHandler, name: Bootstrap.saveMessageHandlerName)
         }
         if let controlHandler = controlHandler {
-            // The native control handler (restart/quit) is driven by the CCLoader title-
-            // buttons mod, which posts to `cccontrol`. No HTML overlay is injected.
+            // The native control handler (restart/quit) is driven by the cc-iosux mod's
+            // title buttons, which post to `cccontrol`. No HTML overlay is injected.
             controller.add(controlHandler, name: Bootstrap.controlMessageHandlerName)
         }
         if let modsOverlayRoot = modsOverlayRoot, #available(iOS 14.0, macOS 11.0, *) {

@@ -701,6 +701,11 @@ public enum Bootstrap {
     /// in-page DOM element regardless of `z-index`, so an HTML overlay is invisible in-game —
     /// a native view above the `WKWebView` is the only reliable way to show it. Measures only
     /// in the top frame and re-arms on focus/visibility so backgrounding can't stall the loop.
+    ///
+    /// The counter is user-toggleable from the in-game mod manager (the `cc-iosux` mod adds a
+    /// checkbox to CCModManager's "Mod settings", stored in `localStorage["cc-iosux-fpsCounter"]`).
+    /// This script reads that flag each cycle and posts `{type:"fpsenabled", value:Bool}` when it
+    /// flips so `GameView` can show/hide the native label; while disabled it stops reporting fps.
     public static let fpsOverlayJavaScript: String = #"""
     (function () {
       "use strict";
@@ -715,6 +720,21 @@ public enum Bootstrap {
 
       function report(fps) {
         try { window.webkit.messageHandlers.cchost.postMessage({ type: "fps", value: fps }); } catch (e) {}
+      }
+
+      // The FPS counter is user-toggleable from the in-game mod manager: the cc-iosux mod
+      // registers a checkbox in CCModManager whose value is stored in localStorage under
+      // "cc-iosux-fpsCounter" ("true"/"false"). Absent/null means the setting has not been
+      // initialised yet, so we default to ON to preserve the historical always-on behaviour.
+      // We re-read it each report cycle (cheap) and tell the native host to show/hide the
+      // label only when the state changes; while disabled we also stop reporting fps.
+      var FPS_SETTING_KEY = "cc-iosux-fpsCounter";
+      function fpsEnabled() {
+        try { return localStorage.getItem(FPS_SETTING_KEY) !== "false"; } catch (e) { return true; }
+      }
+      var lastEnabled = null;
+      function reportEnabled(enabled) {
+        try { window.webkit.messageHandlers.cchost.postMessage({ type: "fpsenabled", value: enabled }); } catch (e) {}
       }
 
       // Report the game canvas's left edge as a fraction of the viewport so the native FPS
@@ -740,8 +760,12 @@ public enum Bootstrap {
           frames++;
           var dt = now - last;
           if (dt >= 500) {
-            report(Math.round((frames * 1000) / dt));
-            reportLayout();
+            var enabled = fpsEnabled();
+            if (enabled !== lastEnabled) { reportEnabled(enabled); lastEnabled = enabled; }
+            if (enabled) {
+              report(Math.round((frames * 1000) / dt));
+              reportLayout();
+            }
             frames = 0; last = now;
           }
         } catch (e) {}

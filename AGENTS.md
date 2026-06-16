@@ -98,8 +98,9 @@ tools/                   Automation + the macOS proof harness (see README "Under
 ```
 
 > **Mods & save sync now live in their own repos** (the cc-mods org), not bundled here:
-> - **[cc-iostitlebuttons](https://github.com/cc-mods/cc-iostitlebuttons)** — the Restart/Close
->   title buttons (was `mods/cc-ios-title-buttons`). Install it (and any other mod) one-click from
+> - **[cc-iosux](https://github.com/cc-mods/cc-iosux)** — cc-ios QoL tweaks: the Restart/Close
+>   title buttons (was `mods/cc-ios-title-buttons` → `cc-iostitlebuttons`) plus an FPS-counter
+>   toggle in CCModManager → Mod settings. Install it (and any other mod) one-click from
 >   the in-game Mods tab; `setup-ccloader.sh` pre-registers the `@cc-mods/CCModDB/stable` database.
 > - **[cc-tailsync](https://github.com/cc-mods/cc-tailsync)** — wireless (Tailscale) save sync:
 >   the `CCTailsync` Swift package + the macOS/Windows save-servers + USB sync. cc-ios keeps only
