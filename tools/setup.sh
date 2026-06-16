@@ -5,7 +5,7 @@
 #   1. Preflight (and optionally auto-install tools)         tools/preflight.sh
 #   2. Locate your CrossCode assets                          tools/find-crosscode.sh
 #   3. Copy assets into the app + transcode audio            tools/sync-assets.sh
-#   4. (optional) Install CCLoader + the title-buttons mod   tools/setup-ccloader.sh
+#   4. (optional) Install CCLoader + the in-game mod manager  tools/setup-ccloader.sh
 #   5. Generate the Xcode project                            xcodegen
 #
 # Then prints exactly how to run (Simulator) or build to a device.
@@ -124,11 +124,13 @@ want_mods=0
 case "$mods" in
   yes) want_mods=1;;
   no)  echo "Skipping (--no-mods).";;
-  ask) ask_yes_no "Install CCLoader + the in-game mod manager + native title buttons?" y && want_mods=1;;
+  ask) ask_yes_no "Install CCLoader + the in-game mod manager (CCModManager)?" y && want_mods=1;;
 esac
 if [[ "$want_mods" -eq 1 ]]; then
   tools/setup-ccloader.sh || die "CCLoader setup failed."
-  tools/setup-ccloader.sh --add-mod mods/cc-ios-title-buttons || die "adding title-buttons mod failed."
+  echo "Installed CCLoader + CCModManager (pre-registered the cc-mods database)."
+  echo "Once booted, install cc-mods (cc-ultrawide, cc-aimassist, cc-iostitlebuttons)"
+  echo "one-click from the in-game Mods tab."
 fi
 
 # --- 5. Generate the Xcode project ----------------------------------------------------

@@ -21,9 +21,9 @@ persist and sync with the desktop copy, and CCLoader mods load.
 | 🎮 Runs the full game | iOS Simulator **and** physical iPhone |
 | 🔊 Audio | auto-transcodes Ogg→M4A at setup (iOS/WebKit can't decode Ogg) |
 | 🕹️ Hardware controllers | MFi / Xbox / PlayStation, via Apple's GameController framework |
-| 💾 Saves | persist on-device; byte-identical to the desktop `cc.save` |
-| 🔁 PC save sync | USB or wireless (Tailscale); Steam Cloud spans your PCs |
-| 🧩 CCLoader mods | in-game **Mods** tab, one-click mod manager, native title buttons |
+| 💾 Saves | persist on-device; byte-identical to the desktop `cc.save`; Files-app backup folder |
+| 🔁 PC save sync | optional, via **[cc-tailsync](https://github.com/cc-mods/cc-tailsync)** (USB or Tailscale; Steam Cloud spans your PCs) |
+| 🧩 CCLoader mods | in-game **Mods** tab, one-click mod manager (the [cc-mods](https://github.com/cc-mods) suite is pre-registered) |
 | 📈 FPS overlay | color-coded, top-right |
 
 There's no on-screen virtual controller (hardware controllers + keyboard only), and App Store
@@ -82,43 +82,39 @@ refresh over Wi-Fi.
 | Stops opening after ~a week | Free cert expired — re-run `make device`. |
 | `full Xcode not selected` | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 
-## Save sync with your PC (optional)
+## Saves & PC sync
 
 CrossCode keeps its entire save in one `localStorage` blob (`cc.save`) that's **byte-identical to
-the desktop save**, so it moves directly between PC and iPhone. Sync is optional and fail-safe (if
-unconfigured or unreachable it's a silent no-op and never blocks the game).
+the desktop save**, so it moves directly between PC and iPhone. cc-ios persists it on-device and
+exposes a Files-app backup folder — **no extra setup, no network**:
 
-- **USB:** `tools/save-sync.sh` copies `cc.save` between desktop and phone, newest-wins
-  (`--to-phone` / `--from-phone` to force a direction).
-- **Wireless (Tailscale):** with both machines on your tailnet:
-  ```bash
-  tools/setup-sync.sh              # detect this Mac's Tailscale IP, push cc-sync.json to the phone
-  tools/save-server.sh install     # run the save hub persistently (survives reboots)
-  ```
-  Bidirectional: the app pushes on every in-game save and pulls a newer PC save at app launch
-  (relaunch to pick up a PC session). PC↔PC is handled automatically by **Steam Cloud**.
+- **On-device:** every in-game save is written to the app container and survives relaunch.
+- **Manual backup/restore:** `Documents/saves/cc.save` is visible in Finder / the Apple Devices app
+  / the Files app. Copy it off to back up; drop a replacement in and relaunch to restore (newest
+  wins).
+
+**Wireless / USB sync with your PC is an optional add-on:**
+**[cc-tailsync](https://github.com/cc-mods/cc-tailsync)** provides USB sync, a macOS/Windows
+save-server, and Tailscale wireless sync, and wires itself into this app with one command
+(`tools/integrate-ios.sh`). cc-ios itself ships no network sync — it just exposes a fail-safe seam
+that cc-tailsync fills in. PC↔PC is handled automatically by **Steam Cloud**.
 
 ## Uninstall
 
 Everything cc-ios stores **on the phone** lives inside the app's sandbox container — the save,
-the Files-app `saves/` folder, installed mods, and the sync config. So removing it is just a normal
+the Files-app `saves/` folder, installed mods, and any sync config. So removing it is just a normal
 app delete:
 
 1. **On the iPhone:** long-press the **cc-ios** icon → **Remove App** → **Delete App**. This wipes
-   the save, mods, and `cc-sync.json` with it — no leftover files.
+   the save, mods, and any `cc-sync.json` with it — no leftover files.
 
-> 💾 **Back up the save first if you want it:** Finder/Apple Devices → cc-ios → Files → `saves/cc.save`,
-> or `tools/save-sync.sh --from-phone`. (If you used Tailscale sync it's already on your PC.)
+> 💾 **Back up the save first if you want it:** Finder/Apple Devices → cc-ios → Files → `saves/cc.save`.
+> (If you set up cc-tailsync, it's already on your PC.)
 
-If you set up wireless sync, the **PC save-server** is separate and keeps running — stop it:
-
-```bash
-tools/save-server.sh uninstall   # stop + remove the launchd service
-rm -f cc-sync.json               # optional: drop the local config
-```
-
-**Tailscale itself** is untouched. cc-ios uses no iCloud, App Groups, or Keychain, so nothing is
-left behind elsewhere. Your **desktop `cc.save`** (via Steam Cloud) is unaffected.
+If you set up wireless sync, the **PC save-server** is part of
+[cc-tailsync](https://github.com/cc-mods/cc-tailsync) and is separate — stop it from there (see its
+docs). **Tailscale itself** is untouched. cc-ios uses no iCloud, App Groups, or Keychain, so nothing
+is left behind elsewhere. Your **desktop `cc.save`** (via Steam Cloud) is unaffected.
 
 ## Legal
 

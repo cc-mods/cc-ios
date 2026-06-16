@@ -5,8 +5,8 @@
 #   make doctor    check the build environment
 #   make sim       build + run in the iOS Simulator
 #   make device    build + sign + install on a connected iPhone
-#   make sync      set up wireless (Tailscale) save sync: write + push cc-sync.json
-#   make mods      install CCLoader + the in-game mod manager + title buttons
+#   make sync      how to add wireless (Tailscale) save sync via cc-tailsync
+#   make mods      install CCLoader + the in-game mod manager (CCModManager)
 #   make harness   boot the game in a macOS WKWebView (writes proof.png)
 #   make assets    (re)copy your CrossCode assets + transcode audio
 #   make project   regenerate the Xcode project
@@ -39,11 +39,14 @@ device:
 	tools/ios-build.sh $(ARGS)
 
 sync:
-	tools/setup-sync.sh $(ARGS)
+	@echo "Wireless save sync now lives in its own repo: cc-tailsync"
+	@echo "  https://github.com/cc-mods/cc-tailsync"
+	@echo ""
+	@echo "From a cc-tailsync checkout, add it to THIS cc-ios build with:"
+	@echo "  tools/integrate-ios.sh --ios-repo \"$(CURDIR)\""
 
 mods:
 	tools/setup-ccloader.sh $(ARGS)
-	tools/setup-ccloader.sh --add-mod mods/cc-ios-title-buttons
 
 harness:
 	swift run webkit-harness --settle 8 --out proof.png $(ARGS)

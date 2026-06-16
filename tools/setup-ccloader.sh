@@ -180,6 +180,44 @@ open(os.path.join(game, "mods.json"), "w").write(json.dumps(names, indent="\t"))
 print("  mods.json:", names)
 PY
 
+# --- 6. Pre-register the cc-mods mod database in CCModManager (best-effort) --------------
+# So the cc-mods suite (cc-ultrawide, cc-aimassist, cc-iostitlebuttons) shows up ONE-CLICK in
+# the in-game Mods tab. We insert "@cc-mods/CCModDB/stable" next to CCModManager's default
+# CCDirectLink repo in its plugin. Non-fatal + idempotent: if CCModManager isn't present (the
+# anchor URL won't be found) we just print a hint and continue.
+echo "Pre-registering the cc-mods mod database (CCModManager repositories)…"
+python3 - "$game" <<'PY'
+import os, re, sys
+game = sys.argv[1]
+mods_dir = os.path.join(game, "assets", "mods")
+OUR = "@cc-mods/CCModDB/stable"
+ANCHOR = re.compile(r"(['\"])@CCDirectLink/CCModDB/stable\1")
+patched = 0
+if os.path.isdir(mods_dir):
+    for root, _, files in os.walk(mods_dir):
+        for f in files:
+            if not f.endswith(".js"):
+                continue
+            p = os.path.join(root, f)
+            try:
+                s = open(p, encoding="utf-8").read()
+            except Exception:
+                continue
+            if OUR in s:          # already registered
+                continue
+            m = ANCHOR.search(s)
+            if not m:
+                continue
+            q = m.group(1)
+            s = s[:m.start()] + f"{q}{OUR}{q}, " + s[m.start():]
+            open(p, "w", encoding="utf-8").write(s)
+            patched += 1
+            print("  + %s in %s" % (OUR, os.path.relpath(p, game)))
+if patched == 0:
+    print("  (CCModManager default-repo list not found — skipping.")
+    print("   Add '%s' in CCModManager -> Settings -> Repositories if you want one-click.)" % OUR)
+PY
+
 count=$(find "$game/assets/mods" -maxdepth 1 -mindepth 1 | wc -l | tr -d ' ')
 echo "Done. CCLoader installed with $count item(s) in assets/mods/."
 echo "Entry is now ccloader/index.html (app auto-detects it). Rebuild + reinstall the app."

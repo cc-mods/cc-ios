@@ -54,7 +54,7 @@ make help       # list all targets
 ```
 
 `tools/setup-tui.sh` is a thin, interactive **front-end** over the same scripts `setup.sh` drives
-(preflight, find-crosscode, sync-assets, setup-ccloader, xcodegen, setup-sync, save-server) — it
+(preflight, find-crosscode, sync-assets, setup-ccloader, xcodegen) — it
 adds a status board and post-step verification but **must never reimplement** their logic. Keep
 `setup.sh` as the headless/CI path.
 
@@ -88,13 +88,23 @@ Shared/CCWebHost/        Cross-platform WebKit host (THE core; used by both app 
 
 app/                     iOS app (SwiftUI). Consumes Shared/CCWebHost.
   Sources/                 CCIOSApp, GameView (owns the bridges), AudioSession, ControllerBridge,
-                           SaveBridge, SaveSyncClient, ControlBridge.
+                           SaveBridge, SaveFolder, SaveSyncBootstrap (no-op sync wiring), ControlBridge.
   project.yml              XcodeGen spec. Bundle ID / team are NOT hard-coded (passed at build).
   Resources/game/          ← your CrossCode assets (git-ignored, populated by tools/sync-assets.sh)
 
+Shared/CCWebHost/SaveSync.swift   SaveSyncProvider protocol + SaveSync.provider registry (the
+                           optional network-sync seam; nil ⇒ no-op). Filled in by cc-tailsync.
 tools/                   Automation + the macOS proof harness (see README "Under the hood").
-mods/cc-ios-title-buttons/  Bundled CCLoader mod: native Restart/Close buttons on the title screen.
 ```
+
+> **Mods & save sync now live in their own repos** (the cc-mods org), not bundled here:
+> - **[cc-iostitlebuttons](https://github.com/cc-mods/cc-iostitlebuttons)** — the Restart/Close
+>   title buttons (was `mods/cc-ios-title-buttons`). Install it (and any other mod) one-click from
+>   the in-game Mods tab; `setup-ccloader.sh` pre-registers the `@cc-mods/CCModDB/stable` database.
+> - **[cc-tailsync](https://github.com/cc-mods/cc-tailsync)** — wireless (Tailscale) save sync:
+>   the `CCTailsync` Swift package + the macOS/Windows save-servers + USB sync. cc-ios keeps only
+>   **file-based save persistence** (`SaveBridge`/`SaveFolder`) and an optional `SaveSyncProvider`
+>   seam that cc-tailsync's `tools/integrate-ios.sh` wires in.
 
 The macOS harness (`tools/webkit-harness`) and the iOS app are two front-ends over the **same**
 host code. Develop and debug in the harness (fast, no device, no signing); ship via the app.
@@ -166,23 +176,21 @@ a real device (the macOS harness and the Simulator don't gate Web Audio the way 
 
 ### Saves
 The entire save is one `localStorage` blob under key `cc.save`, **byte-identical** to the desktop
-`cc.save`. Capture/inject by hooking `Storage.prototype.setItem` (the prototype — not an instance).
-Sync tooling mirrors `Documents/cc.save`; sync is optional and must stay fail-safe (no config or
-unreachable server → silent no-op, never blocks boot).
+`cc.save`. Capture/inject by hooking `Storage.prototype.setItem` (the prototype — not an instance);
+see `Bootstrap.swift`. cc-ios persists it to `Documents/cc.save` (`SaveBridge`) and mirrors a
+Files-app `Documents/saves/` backup folder (`SaveFolder`). **This is fully standalone — no network.**
 
-- **USB:** `tools/save-sync.sh` (newest-wins via `devicectl`).
-- **Wireless (Tailscale):** `tools/setup-sync.sh` detects the Mac's Tailscale IP, writes
-  `cc-sync.json` (gitignored — **never** hard-code an IP in source), and pushes it to the device.
-  `tools/save-server.sh install` runs `save-server.py` as a launchd service (survives reboots).
-  `SaveSyncClient` is **bidirectional**: it pushes on every save but **pulls only at launch**
-  (mtime newest-wins, sha256 short-circuit to avoid echo loops). The server keeps one `.backup`
-  and writes atomically.
-  - **launchd + TCC gotcha:** launchd agents are denied read access to `~/Documents`, `~/Desktop`,
-    and `~/Downloads` (macOS TCC), so a service can't run `save-server.py` straight from a clone in
-    one of those folders (`Operation not permitted`, even though an interactive shell can). So
-    `save-server.sh install` **copies the script to `~/.cc-ios/`** (a dotfolder, not TCC-protected)
-    and points the plist there — re-run `install` after editing the script. The desktop save lives
-    under `~/Library` (not TCC-protected), so reading/writing it from the service is fine.
+**Network (Tailscale) sync is OPTIONAL and lives in
+[cc-tailsync](https://github.com/cc-mods/cc-tailsync).** cc-ios only exposes a seam: the
+`SaveSyncProvider` protocol + `SaveSync.provider` registry (`Shared/CCWebHost/SaveSync.swift`). When
+nothing is registered, every sync call in `GameView` no-ops, so the app builds/runs without
+cc-tailsync. cc-tailsync's `tools/integrate-ios.sh` adds its `CCTailsync` SwiftPM package to
+`project.yml` and replaces `app/Sources/SaveSyncBootstrap.swift` with a version that conforms
+`TailscaleSyncClient` to `SaveSyncProvider` and registers it. The provider stays fail-safe (no
+config / unreachable server → silent no-op, never blocks boot): it pushes on every save but **pulls
+only at launch** (mtime newest-wins, sha256 short-circuit to avoid echo loops). The USB path
+(`save-sync.sh`), the PC save-servers (macOS launchd + Windows Scheduled Task), and the launchd/TCC
+gotcha all live in cc-tailsync now — see its docs.
 
 ### Controller
 CrossCode polls `navigator.getGamepads()` every frame using the **W3C Standard Gamepad** mapping
@@ -235,9 +243,9 @@ axes 0-3). The native bridge feeds `window.__ccpad`. **GameController's y-axis i
   collisions, and wrap setup + callbacks in `try/catch` so a mod error can never reach the game's
   init (which shows the `CRITICAL BUG` screen).
 - **The bundle can come back as vanilla** (root `node-webkit.html`, no `ccloader/`) — e.g. after a
-  re-sync or across sessions. Then there's no Mods tab and no title buttons. Check the layout
-  (`ccloader/index.html` present?) and re-run `tools/setup-ccloader.sh` (+ `--add-mod
-  mods/cc-ios-title-buttons`) to restore it.
+  re-sync or across sessions. Then there's no Mods tab. Check the layout (`ccloader/index.html`
+  present?) and re-run `tools/setup-ccloader.sh` to restore it, then re-install any mods one-click
+  from the in-game Mods tab.
 - **`sync-assets.sh` is destructive (`rsync --delete`) and resets to vanilla** — it repopulates
   `app/Resources/game` from the raw Steam tree, wiping any CCLoader overlay. So the pipeline order
   is **sync-assets → setup-ccloader**, never the reverse, and you must not re-run sync-assets after
@@ -330,7 +338,7 @@ against a scratch tree and boot it in the harness.
 - Harness boots the game with `jsErrors == 0` and no `CRITICAL BUG`.
 - The specific behavior you changed is demonstrated (screenshot via `--out`, or `--eval` probe,
   or `--ls-get` for saves).
-- For New-Game-path changes, boot+`--poke` several times (the title-buttons crash was intermittent).
+- For New-Game-path changes, boot+`--poke` several times (the title-screen button-mod crash was intermittent).
 - No game assets or personal data staged (`git status`).
 - Conventional Commit message.
 

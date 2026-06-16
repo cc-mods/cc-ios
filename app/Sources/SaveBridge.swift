@@ -15,7 +15,7 @@ import WebKit
 ///     host can seed `localStorage` before the game boots.
 ///
 /// The file is exposed via the Files app / Finder (`UIFileSharingEnabled`) and is the
-/// artifact the desktop bridge (`tools/save-sync.sh`, using `xcrun devicectl device copy`)
+/// artifact the desktop bridge (cc-tailsync's `save-sync.sh`, using `xcrun devicectl device copy`)
 /// shuttles to and from the Steam save location.
 final class SaveBridge: NSObject, WKScriptMessageHandler {
 

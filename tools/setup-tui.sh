@@ -4,16 +4,15 @@
 # A friendly front-end over the same tools/*.sh that `setup.sh` drives, but it
 # (a) probes your current state up front so every stage shows a real ✓/✗,
 # (b) walks you through only what's missing, and (c) verifies each step after it
-# runs (tool versions, asset counts, the .xcodeproj, a reachable save-server).
+#     runs (tool versions, asset counts, the .xcodeproj).
 #
 # It never reimplements the underlying scripts — it calls preflight.sh,
-# find-crosscode.sh, sync-assets.sh, setup-ccloader.sh, xcodegen, setup-sync.sh
-# and save-server.sh, then proves the result.
+# find-crosscode.sh, sync-assets.sh, setup-ccloader.sh and xcodegen, then proves
+# the result.
 #
 # Usage:
 #   tools/setup-tui.sh            # interactive board (this is the friendly path)
 #   tools/setup-tui.sh --check    # probe + print status, then exit (read-only)
-#   tools/setup-tui.sh --port N   # save-sync port to verify (default 8765)
 #
 # Headless/CI: use tools/setup.sh (scriptable, accepts --yes/--with-mods/…).
 set -uo pipefail
@@ -22,11 +21,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 check_only=0
-sync_port=8765
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check)   check_only=1; shift;;
-    --port)    sync_port="$2"; shift 2;;
     -h|--help) grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0;;
     *) printf 'unknown arg: %s\n' "$1" >&2; exit 2;;
   esac
@@ -48,13 +45,13 @@ cleanup() { [[ "$use_ui" -eq 1 ]] && printf '\033[?25h'; }
 trap cleanup EXIT INT TERM
 
 # --- stage model (bash 3.2: parallel indexed arrays) ---------------------------------
-stage_id=(   env             assets             mods              project          run               sync )
-stage_name=( "Toolchain"     "CrossCode assets" "Mods (CCLoader)" "Xcode project"  "Run target"      "PC save sync (Tailscale)" )
-stage_state=( pending pending pending pending pending pending )   # pending|run|ok|warn|fail|skip
-stage_detail=( "" "" "" "" "" "" )
+stage_id=(   env             assets             mods              project          run )
+stage_name=( "Toolchain"     "CrossCode assets" "Mods (CCLoader)" "Xcode project"  "Run target" )
+stage_state=( pending pending pending pending pending )   # pending|run|ok|warn|fail|skip
+stage_detail=( "" "" "" "" "" )
 SPIN_FRAME="·"
 
-idx_of() { local i=0; for i in 0 1 2 3 4 5; do [[ "${stage_id[$i]}" == "$1" ]] && { printf '%s' "$i"; return; }; done; printf -- '-1'; }
+idx_of() { local i=0; for i in 0 1 2 3 4; do [[ "${stage_id[$i]}" == "$1" ]] && { printf '%s' "$i"; return; }; done; printf -- '-1'; }
 set_stage() { local i; i="$(idx_of "$1")"; [[ "$i" -ge 0 ]] || return; stage_state[$i]="$2"; stage_detail[$i]="${3:-}"; }
 
 glyph() { # state
@@ -168,16 +165,7 @@ probe_run() {
   xcrun simctl list runtimes 2>/dev/null | grep -qi 'iOS' && sim="Simulator ready"
   if [[ -n "$sim" ]]; then set_stage run ok "$sim"; else set_stage run warn "no Simulator runtime"; fi
 }
-probe_sync() {
-  if launchctl list 2>/dev/null | grep -q 'com.ccios.save-server'; then
-    set_stage sync ok "save-server service loaded"
-  elif [[ -f cc-sync.json ]]; then
-    set_stage sync warn "configured; server not running"
-  else
-    set_stage sync pending "optional"
-  fi
-}
-probe_all() { probe_env; probe_assets; probe_mods; probe_project; probe_run; probe_sync; }
+probe_all() { probe_env; probe_assets; probe_mods; probe_project; probe_run; }
 
 # ====================================================================================
 # Stage actions
@@ -245,10 +233,9 @@ do_mods() {
   if [[ "${stage_state[$ai]}" != ok && "${stage_state[$ai]}" != skip ]]; then
     set_stage mods warn "needs assets first"; return 0
   fi
-  local k; k="$(ask_key "   Install CCLoader + in-game Mod Manager + native title buttons?  [Y] yes  [s] skip" y)"
+  local k; k="$(ask_key "   Install CCLoader + the in-game Mod Manager (CCModManager)?  [Y] yes  [s] skip" y)"
   case "$k" in s|S|n|N) set_stage mods skip "skipped"; return 0;; esac
-  run_step mods "overlaying CCLoader" -- tools/setup-ccloader.sh \
-    && run_step mods "adding title-buttons mod" -- tools/setup-ccloader.sh --add-mod mods/cc-ios-title-buttons
+  run_step mods "overlaying CCLoader" -- tools/setup-ccloader.sh
   probe_mods; probe_assets
 }
 
@@ -284,29 +271,6 @@ PY
   else set_stage run warn "no Simulator runtime and no device"; fi
 }
 
-do_sync() {
-  local i; i="$(idx_of sync)"
-  local k; k="$(ask_key "   Set up wireless save sync with this Mac over Tailscale?  [y] yes  [N] skip" n)"
-  case "$k" in y|Y) :;; *) [[ "${stage_state[$i]}" == ok ]] || set_stage sync skip "skipped"; return 0;; esac
-
-  run_step sync "writing + pushing cc-sync.json" -- tools/setup-sync.sh --port "$sync_port" || {
-    ask_key "   (is the iPhone connected + unlocked?)  [Enter] continue" "" >/dev/null
-  }
-  local s; s="$(ask_key "   Run the save hub persistently (launchd, survives reboots)?  [Y] yes  [s] skip" y)"
-  case "$s" in s|S|n|N) :;; *) run_step sync "installing save-server service" -- tools/save-server.sh install --port "$sync_port";; esac
-
-  # Verify: hit /status and surface the save's size + hash as proof.
-  local status; status="$(curl -s --max-time 5 "http://127.0.0.1:${sync_port}/status" 2>/dev/null || true)"
-  if [[ -n "$status" ]]; then
-    local size sha
-    size="$(printf '%s' "$status" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("size",0))' 2>/dev/null || echo '?')"
-    sha="$(printf '%s' "$status" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("sha256","")[:12])' 2>/dev/null || echo '')"
-    set_stage sync ok "server up · ${size}B · sha ${sha}…"
-  else
-    probe_sync
-  fi
-}
-
 # ====================================================================================
 # Main
 # ====================================================================================
@@ -325,7 +289,7 @@ if [[ "$check_only" -eq 1 ]]; then
   else
     printf 'cc-ios status\n'
     local_i=0
-    for local_i in 0 1 2 3 4 5; do
+    for local_i in 0 1 2 3 4; do
       printf '  [%-7s] %-26s %s\n' "${stage_state[$local_i]}" "${stage_name[$local_i]}" "${stage_detail[$local_i]:-}"
     done
   fi
@@ -340,15 +304,11 @@ do_assets;  render
 do_mods;    render
 do_project; render
 do_run;     render
-do_sync
 
 # --- final board + next steps ---------------------------------------------------------
 render
 printf '\n%s  Setup summary%s\n' "$BOLD" "$X"
 printf '  Run in the iOS Simulator (no signing):   %stools/run-sim.sh%s\n' "$BOLD" "$X"
 printf '  Build + run on a connected iPhone:       %stools/ios-build.sh%s\n' "$BOLD" "$X"
-ai="$(idx_of sync)"
-if [[ "${stage_state[$ai]}" == ok ]]; then
-  printf '  Save sync is live; saves push on change and pull at app launch.\n'
-fi
+printf '  Add wireless save sync (optional):       %shttps://github.com/cc-mods/cc-tailsync%s\n' "$BOLD" "$X"
 printf '\n'

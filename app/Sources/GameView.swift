@@ -29,9 +29,10 @@ struct GameView: UIViewRepresentable {
             NSLog("[cc saves] imported %d bytes from the saves/ folder", dropped.count)
         }
 
-        // Wireless sync (optional): if a server is configured, pull a newer save into
-        // Documents/cc.save before we read it for injection. Bounded so launch stays snappy.
-        _ = context.coordinator.syncClient.pullIfNewerBlocking(timeout: 4)
+        // Wireless sync (optional add-on, e.g. cc-tailsync): if a provider is registered and a
+        // server is configured, pull a newer save into Documents/cc.save before we read it for
+        // injection. Bounded so launch stays snappy. No provider → silent no-op.
+        _ = SaveSync.provider?.pullIfNewerBlocking(timeout: 4)
 
         // Mirror whatever save we ended up with into the saves/ folder so the latest is
         // always grabbable from a PC (and so our mirror matches the canonical save).
@@ -39,8 +40,8 @@ struct GameView: UIViewRepresentable {
             SaveFolder.recordExport(data)
         }
 
-        context.coordinator.saveBridge.onSaveWritten = { [weak coordinator = context.coordinator] value in
-            coordinator?.syncClient.push(value)
+        context.coordinator.saveBridge.onSaveWritten = { value in
+            SaveSync.provider?.push(value)
         }
 
         let config = GameWebHost.makeConfiguration(
@@ -96,7 +97,6 @@ struct GameView: UIViewRepresentable {
         let saveBridge = SaveBridge()
         let controllerBridge = ControllerBridge()
         let controlBridge = ControlBridge()
-        let syncClient = SaveSyncClient()
 
         /// Adds a native FPS label on top of the web view. The JS overlay only *measures* the
         /// frame rate and posts it (see `Bootstrap.fpsOverlayJavaScript`); we draw it natively
