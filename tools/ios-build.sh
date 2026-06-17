@@ -136,6 +136,34 @@ fi
 echo "Device identifier: $install_id"
 echo "Hardware UDID:     $build_udid"
 
+# --- 3.5 Save sync (cc-tailsync) ---------------------------------------------------
+# cc-ios commits a STANDALONE (no-op) SaveSyncBootstrap so it builds with ZERO reference to
+# cc-tailsync — the suite's "nothing hard-depends on anything else" rule. When the cc-tailsync
+# sibling repo is present we wire it in for THIS build only: apply the integration (a RELATIVE
+# package path — nothing machine-specific), build with it, then restore the standalone tree on
+# exit (success OR failure) so the wiring never lands in git. No sibling → plain standalone build
+# and wireless save sync is simply absent (file-based saves still work).
+step "Save sync (cc-tailsync)"
+tailsync_repo="$repo_root/../cc-tailsync"
+integrate_sh="$tailsync_repo/tools/integrate-ios.sh"
+if [[ -d "$tailsync_repo" && -x "$integrate_sh" ]]; then
+  tailsync_repo="$(cd "$tailsync_repo" && pwd)"
+  ts_backup="$(mktemp -d)"
+  cp "$app_dir/project.yml" "$ts_backup/project.yml"
+  cp "$app_dir/Sources/SaveSyncBootstrap.swift" "$ts_backup/SaveSyncBootstrap.swift"
+  restore_standalone() {
+    cp "$ts_backup/project.yml" "$app_dir/project.yml"
+    cp "$ts_backup/SaveSyncBootstrap.swift" "$app_dir/Sources/SaveSyncBootstrap.swift"
+    rm -rf "$ts_backup"
+    echo "Restored standalone cc-ios tree (save-sync wiring kept out of git)."
+  }
+  trap restore_standalone EXIT
+  "$integrate_sh" --ios-repo "$repo_root" --no-generate
+  echo "Wired cc-tailsync save sync for this build (relative path; reverted afterward)."
+else
+  echo "No cc-tailsync sibling at ../cc-tailsync — building standalone (no wireless save sync)."
+fi
+
 # --- 4. Regenerate project ---------------------------------------------------------
 step "Project"
 if command -v xcodegen >/dev/null 2>&1; then
