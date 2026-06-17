@@ -40,7 +40,7 @@ if ! xcode-select -p | grep -q "Xcode.app"; then
   echo "error: full Xcode not selected. Run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer" >&2
   exit 1
 fi
-xcodebuild -version | head -1
+xcodebuild -version | sed -n '1p'
 
 # --- 1. Assets ---------------------------------------------------------------------
 # Consider assets present if EITHER layout exists: the vanilla tree (root node-webkit.html)

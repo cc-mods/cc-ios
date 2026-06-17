@@ -242,6 +242,56 @@ struct GameView: UIViewRepresentable {
             // If we have no synced save file yet but localStorage already holds one (e.g. a
             // save made before sync existed), capture it so the bridge has something to push.
             saveBridge.captureExistingIfNeeded(from: webView)
+            // Once per launch, ask the consent-pull provider (e.g. the GitHub hub) whether a newer
+            // save exists; if so, prompt the player before replacing their on-device save.
+            checkForNewerSaveOnce(in: webView)
+        }
+
+        /// Whether we've already run the launch-time "newer save?" consent check (so the reload we
+        /// trigger after the player accepts doesn't prompt again).
+        private var didConsentCheck = false
+
+        /// Non-destructive check against the consent-pull provider (GitHub hub). If the hub holds a
+        /// newer/divergent save, show a native "Newer save detected — Load? / Keep mine" prompt; only
+        /// on "Load" do we replace the on-device save (and reload the game to use it). No provider, no
+        /// config, or nothing newer → silent no-op. Never overwrites the local save without consent.
+        private func checkForNewerSaveOnce(in webView: WKWebView) {
+            guard !didConsentCheck, let consent = SaveSync.consentProvider else { return }
+            didConsentCheck = true
+            consent.checkForConsentPull { [weak self, weak webView] data in
+                guard let data = data, let webView = webView else { return }
+                DispatchQueue.main.async { self?.presentNewerSavePrompt(data: data, in: webView) }
+            }
+        }
+
+        private func presentNewerSavePrompt(data: Data, in webView: WKWebView) {
+            guard let presenter = Self.topViewController(from: webView) else { return }
+            let alert = UIAlertController(
+                title: "Newer Save Detected",
+                message: "A newer CrossCode save was found in your sync hub. Load it? "
+                    + "Your current on-device save will be replaced.",
+                preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Keep Mine", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Load", style: .default) { [weak webView] _ in
+                guard let webView = webView,
+                      SaveSync.consentProvider?.applyPulledConsent(data) == true else { return }
+                // The save-injection user script is baked with the launch-time snapshot and is guarded
+                // to run once per browsing context, so a plain reload won't pick up the new file. Set
+                // localStorage directly (base64 → atob to dodge escaping), leave the guard in place so
+                // the stale snapshot can't clobber it, then reload so the game boots from the new save.
+                let b64 = data.base64EncodedString()
+                let js = "try{window.localStorage.setItem('cc.save', atob('\(b64)'));}catch(e){}"
+                webView.evaluateJavaScript(js) { _, _ in webView.reload() }
+            })
+            presenter.present(alert, animated: true)
+        }
+
+        /// Top-most presented view controller from the web view's window (to present the alert over
+        /// the SwiftUI host).
+        private static func topViewController(from webView: WKWebView) -> UIViewController? {
+            var vc = webView.window?.rootViewController
+            while let presented = vc?.presentedViewController { vc = presented }
+            return vc
         }
 
         /// The WebKit content process died (commonly an out-of-memory jetsam on device during
