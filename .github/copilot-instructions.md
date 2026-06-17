@@ -5,14 +5,14 @@ invariants that keep CrossCode booting, the harness-first workflow, and environm
 file is just the short version of the must-not-break rules.
 
 📓 **Also read the suite agent docs:**
-**[`cc-mods/cc-agentdocs`](https://github.com/cc-mods/cc-agentdocs)** (private; org members only) — the
-suite's documentation hub; start at its [`AGENTS.md`](https://github.com/cc-mods/cc-agentdocs/blob/main/AGENTS.md).
+**[`cc-mods/cc-agent-tools`](https://github.com/cc-mods/cc-agent-tools)** (private; org members only) — the
+suite's documentation hub; start at its [`AGENTS.md`](https://github.com/cc-mods/cc-agent-tools/blob/main/AGENTS.md).
 Most relevant:
-[`cc-ios.md`](https://github.com/cc-mods/cc-agentdocs/blob/main/cc-ios.md) (the runtime invariants +
+[`cc-ios.md`](https://github.com/cc-mods/cc-agent-tools/blob/main/cc-ios.md) (the runtime invariants +
 the `SaveSyncProvider` seam to cc-tailsync),
-[`crosscode-modding.md`](https://github.com/cc-mods/cc-agentdocs/blob/main/crosscode-modding.md), and
-[`suite-architecture.md`](https://github.com/cc-mods/cc-agentdocs/blob/main/suite-architecture.md).
-**When you learn something durable, add it to `cc-mods/cc-agentdocs`** (and keep `AGENTS.md` in sync).
+[`crosscode-modding.md`](https://github.com/cc-mods/cc-agent-tools/blob/main/crosscode-modding.md), and
+[`suite-architecture.md`](https://github.com/cc-mods/cc-agent-tools/blob/main/suite-architecture.md).
+**When you learn something durable, add it to `cc-mods/cc-agent-tools`** (and keep `AGENTS.md` in sync).
 
 ## Always
 
