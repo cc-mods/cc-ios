@@ -603,9 +603,29 @@ public enum Bootstrap {
     /// JS string-escaping concerns; the page decodes it with `atob`. Must be added to the
     /// content controller **before** the main bootstrap script so the value is present
     /// when CrossCode first reads it.
+    ///
+    /// SEED ONCE PER BROWSING CONTEXT — NOT ON RELOADS. This payload is a SNAPSHOT of
+    /// `Documents/cc.save` taken when the app launched. A `WKUserScript` re-runs on every
+    /// page load, including in-app reloads — and the cc-ios "Restart Game" button
+    /// (`ControlBridge` / the cc-iosux mod) and the cc-ultrawide restart prompt all
+    /// `webView.reload()`. Re-running an unconditional `setItem` on reload would clobber
+    /// `localStorage["cc.save"]` — the live save the player has been writing this session —
+    /// with the stale launch-time snapshot, silently losing all progress since launch
+    /// (manual + autosaves alike). That is a real, reported data-loss bug.
+    ///
+    /// `sessionStorage` is the exact signal we need: it survives a `location.reload()` /
+    /// `webView.reload()` (same browsing context) but is cleared when the `WKWebView` is
+    /// recreated on a genuine app relaunch. So we seed on the FIRST load of each launch
+    /// (when `Documents/cc.save` is fresh — the save hook keeps it current, and any sync
+    /// pull has just run) and skip every reload, leaving the live save intact. If the guard
+    /// read ever throws we DON'T seed (fail safe: never clobber an existing save).
     public static func saveInjectionUserScript(base64Save: String) -> WKUserScript {
         let source = """
         (function () {
+          try {
+            if (window.sessionStorage.getItem("__ccSaveSeeded")) return; // reload → keep live save
+            window.sessionStorage.setItem("__ccSaveSeeded", "1");
+          } catch (e) { return; /* no sessionStorage → don't risk clobbering the live save */ }
           try {
             var data = atob("\(base64Save)");
             window.localStorage.setItem("cc.save", data);
