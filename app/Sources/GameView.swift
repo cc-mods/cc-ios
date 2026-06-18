@@ -180,7 +180,12 @@ struct GameView: UIViewRepresentable {
 
         deinit { NotificationCenter.default.removeObserver(self) }
 
-        @objc private func didBackground() { dispatchWindowEvent("blur") }
+        @objc private func didBackground() {
+            dispatchWindowEvent("blur")
+            // Durably push the latest save as we leave the app — survives suspension/force-quit via a
+            // background URLSession (no-op without a provider). Pairs with the launch-time pull.
+            SaveSync.provider?.flushInBackground()
+        }
 
         @objc private func willForeground() {
             AudioSession.activate()

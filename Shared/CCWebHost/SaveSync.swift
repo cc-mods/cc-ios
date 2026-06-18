@@ -23,6 +23,31 @@ public protocol SaveSyncProvider: AnyObject {
     /// Push the given raw `cc.save` string to the remote. Implementations must be fail-safe
     /// (dedupe echoes, never block the game, no-op when unconfigured/unreachable).
     func push(_ value: String)
+
+    /// **Confirmed** flush for a *deliberate* exit (the in-game "Close Game" / "Restart Game"
+    /// buttons, which the host fully controls — see `ControlBridge`). Pushes the current local save
+    /// and calls back on the main queue with whether the remote is confirmed to hold it
+    /// (`true` = safe to proceed / nothing to do; `false` = could not confirm within `timeout`).
+    ///
+    /// Unlike `push` (fire-and-forget), this is the one place the host *waits* on the network before
+    /// acting — but only because it owns the termination, so blocking briefly is legitimate. It MUST
+    /// still be bounded: call back by `timeout` no matter what (a dead network must never trap the
+    /// user in the app), and call back `true` immediately when there is nothing to sync
+    /// (unconfigured, or already in sync). Default: `completion(true)` at once (nothing to block on).
+    func flush(timeout: TimeInterval, completion: @escaping (Bool) -> Void)
+
+    /// **Durable** background flush for app suspension/termination (`didEnterBackground`). Hands the
+    /// upload to the OS so it completes even if the app is suspended or force-quit (e.g. a background
+    /// `URLSession`). Returns immediately; durability is the implementation's job. Default: no-op.
+    func flushInBackground()
+}
+
+public extension SaveSyncProvider {
+    /// Default: nothing to confirm — let the caller proceed without waiting.
+    func flush(timeout: TimeInterval, completion: @escaping (Bool) -> Void) { completion(true) }
+
+    /// Default: no durable-background capability.
+    func flushInBackground() {}
 }
 
 /// Optional **consent-based** pull, for hubs that resolve conflicts by content identity and want the
@@ -49,4 +74,13 @@ public enum SaveSync {
 
     /// Optional consent-based pull provider (e.g. the GitHub hub). `nil` → no interactive pull.
     public static var consentProvider: ConsentPullProvider?
+
+    /// Set by the provider to receive background-`URLSession` completion events. iOS relaunches the
+    /// app (often into the background) to deliver the results of a transfer that finished while it
+    /// was suspended/terminated, calling the app delegate's
+    /// `application(_:handleEventsForBackgroundURLSession:completionHandler:)`. cc-ios's `AppDelegate`
+    /// forwards that here so the provider (which owns the background session) can reconnect to its
+    /// session and run the system completion handler when its events drain. `nil` → no durable
+    /// background session is in play (standalone / Tailscale), so the app delegate simply completes.
+    public static var backgroundEventsHandler: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)?
 }
